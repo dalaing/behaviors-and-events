@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+    <title>A series on behaviours and events</title>
+    <link href="http://dlaing.org/cofun/atom.xml" rel="self" />
+    <link href="http://dlaing.org/cofun" />
+    <id>http://dlaing.org/cofun/atom.xml</id>
+    <author>
+        <name>Dave Laing</name>
+        <email>dave.laing.80@gmail.com</email>
+    </author>
+    <updated>Unknown</updated>
+    
+</feed>
