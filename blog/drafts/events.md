@@ -425,8 +425,8 @@ data Inputs = Inputs {
 
 We then build a function that will be the bridge between our actual inputs and our logical inputs:
 ```haskell
-fanout :: Event InputIO -> Inputs
-fanout eIn =
+fanOut :: Event InputIO -> Inputs
+fanOut eIn =
   let
     eRead = inputToRead eIn
     eMessage = filterE (/= "/quit") eRead
@@ -444,8 +444,8 @@ data Outputs = Outputs {
 ```
 and a function to bridge the gap:
 ```haskell
-fanin :: Outputs -> Event [OutputIO]
-fanin (Outputs eWrites eCloses) =
+fanIn :: Outputs -> Event [OutputIO]
+fanIn (Outputs eWrites eCloses) =
   let
     eCombinedWrites = fmap (\x xs -> Write x : xs) <$> eWrites
     eCombinedCloses = [(Close :) <$ leftmost eCloses]
@@ -457,7 +457,7 @@ fanin (Outputs eWrites eCloses) =
 
 We're dealing with multiple write events already, and it seems likely we'll end up with multiple close events, so `Outputs` contains lists for both of these.
 
-We also want to be doing the combining of these in `fanin` rather than in our event network, since knowing how to combine them is something that involves information about both the logical and actual domains.
+We also want to be doing the combining of these in `fanIn` rather than in our event network, since knowing how to combine them is something that involves information about both the logical and actual domains.
 You can see that in action in the code - we combine all of our write events by append them together, because we want all of the writes to happen, but we just use the leftmost close event, since we only want to close the application at most once.
 
 We end up with a network that looks like this:
@@ -477,7 +477,7 @@ myLogicalNetwork (Inputs eMessage eQuit) =
 
 myTestableNetwork :: Event InputIO -> Moment (Event [OutputIO])
 myTestableNetwork =
-  return . fanin . myLogicalNetwork . fanout
+  return . fanIn . myLogicalNetwork . fanOut
 ```
 which is a bit underwhelming.
 
@@ -485,14 +485,14 @@ If we draw a block diagram for the system though, we've exposed a bit more of wh
 
 ![](../images/network2.png)
 
-It is worth pointing out that as an aside that we can test our `fanout` component with `interpret` by introducing a new data type to collect the results:
+It is worth pointing out that as an aside that we can test our `fanOut` component with `interpret` by introducing a new data type to collect the results:
 ```haskell
-data FanoutResults =
+data FanOutResults =
     FrMessage String
   | FrQuit
 
-collectFanoutResults :: Inputs -> Event FanoutResults
-collectFanoutResults (Inputs eMessage eQuit _) =
+collectFanOutResults :: Inputs -> Event FanOutResults
+collectFanOutResults (Inputs eMessage eQuit _) =
   leftmost [
       FrMessage <$> eMessage
     , FrQuit <$ eQuit
@@ -501,7 +501,7 @@ collectFanoutResults (Inputs eMessage eQuit _) =
 
 ### Handling unknown commands
 
-On the topic of the `fanout` function, we should make some changes to help prepare for the future.
+On the topic of the `fanOut` function, we should make some changes to help prepare for the future.
 
 We're going to treat all input strings that start with "/" as commands, and we want to reject any commands that we don't recognize or are otherwise ill-formed.
 We'll also ignore empty strings that are input.
@@ -515,10 +515,10 @@ data Inputs = Inputs {
   }
 ```
 
-Our new version of `fanout` looks like this:
+Our new version of `fanOut` looks like this:
 ```haskell
-fanout :: Event InputIO -> Inputs
-fanout eIn =
+fanOut :: Event InputIO -> Inputs
+fanOut eIn =
   let
     eRead =
       filterE (not . null) $ inputToRead eIn
