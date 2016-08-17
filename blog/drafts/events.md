@@ -222,7 +222,7 @@ networkDescription i = do
   eRead <- fromAddHandler . addHandler $ i
 
   let
-    eMessage =       filterE (/= "/quit") eRead
+    eMessage = filterE (/= "/quit") eRead
     eQuit    = () <$ filterE (== "/quit") eRead
 
   reactimate $ putStrLn <$> eMessage
@@ -262,7 +262,7 @@ networkDescription i = do
   eRead <- fromAddHandler . addHandler $ i
 
   let
-    eMessage =       filterE (/= "/quit") eRead
+    eMessage = filterE (/= "/quit") eRead
     eQuit    = () <$ filterE (== "/quit") eRead
 
   reactimate $ fmap putStrLn . leftmost $ [
@@ -272,369 +272,126 @@ networkDescription i = do
   reactimate $ exitSuccess <$ eQuit
 ```
 
-### Refactoring for testing
+### Printing a greeting
 
-There's a tantalizing function available in `reactive-banana`.
+We've said goodbye, so we should probably also say hello.
+
+In order to do that, our event network is going to need to know when the program has started.
+
+We'll add a new `EventSource` for that, and we'll collect the `EventSource`s together into a data structure:
 ```haskell
-interpret :: (Event a -> Moment (Event b)) -> [Maybe a] -> IO [Maybe b] 
-```
-According to the haddocks, the IO is an implementation detail but you can otherwise treat it as a pure function.
-
-Also in the haddocks for `interpret`: "Useful for testing."
-That was like a red rag to a bull for me.
-
-It looks like we're going to need two data types to use it - one for our input events and one for our output events.
-
-We're up to the challenge:
-```haskell
-data InputIO =
-  Read String
-  deriving (Eq, Ord, Show)
-
-data OutputIO =
-    Write String
-  | Close
-  deriving (Eq, Ord, Show)
+data InputSources = InputSources {
+    isOpen :: EventSource ()
+  , isRead :: EventSource String
+  }
 ```
 
-We want to be able to focus on the `String` in our `Read` inputs:
+It's pretty easy to build one of these:
 ```haskell
-inputToRead :: Event InputIO -> Event String
-inputToRead eIn =
-    filterJust $ maybeRead <$> eIn
-  where
-    maybeRead (Read x) = Just x
-    maybeRead _        = Nothing
+mkInputSources :: IO InputSources
+mkInputSources =
+  InputSources <$> mkEventSource <*> mkEventSource
 ```
 
-This also introduces `filterJust`, which unwraps `Just` values in its input `Event` and ignores the `Nothing` values.
-
-We can now define our event network.
-
-Since we're not doing any `IO` in the network, we can express it in the `Moment` monad rather than in the `MomentIO` monad.
-In fact even that is overkill, since what we currently want can be expressed as a pure function.
-
-We'll leave it in the `Moment` monad for now, since it means it is trivially compatible with `interpret`.
-
+From the outside of the event network, we need to fire the open event from the event loop:
 ```haskell
-myTestableNetwork :: Event InputIO -> Moment (Event [OutputIO])
-myTestableNetwork eIn =
+eventLoop :: InputSources -> IO ()
+eventLoop (InputSources o r) = do
+  fire o ()
+  forever $ do
+    x <- getLine
+    fire r x
+```
+
+From the inside of the event network, we need to register for open events and use those events to print a greeting:
+```haskell
+networkDescription :: InputSources -> MomentIO ()
+networkDescription (InputSources o r) = do
+  eOpen <- fromAddHandler . addHandler $ o
+  eRead <- fromAddHandler . addHandler $ r
+
   let
-    eRead    = inputToRead eIn
-    eMessage =       filterE (/= "/quit") eRead
+    eMessage = filterE (/= "/quit") eRead
     eQuit    = () <$ filterE (== "/quit") eRead
 
-    eWrite   = leftmost [
-        eMessage
-      , "Bye" <$ eQuit
-      ]
-
-    eOut = fmap ($ []) . unions $ [
-        (\x xs -> Write x : xs) <$> eWrite
-      , (\xs -> Close : xs) <$ eQuit
-      ]
-  in
-    return eOut
-```
-
-The biggest change here is with the description of `eOut`.
-We can't use `leftmost` for this, since when the user quits we will have `eWrite` and `eQuit` happening at the same time.
-That's why `eOut` has type `Event [OutputIO]`.
-
-We build `eOut` using `unions`.
-```haskell
-unions :: [Event (a -> a)] -> Event (a -> a)
-```
-If none of the input events activates, the output doesn't activate.
-If only one of the input events activates with a value, the output activates with that value.
-If multiple inputs activate at the same time, the functions in the events are composed - with the functions being applied in the order they are listed - and the output activates with the composed function as the value.
-
-This means that the listing of `eWrite` before `eQuit` is significant.
-If it were the other way around, our program would exit before it got to print its farewell.
-
-Now we have something that we can test with `interpret`.
-
-With some formatting liberties, we get:
-```haskell
-> output <- interpret myTestableNetwork [
-    Just (Read "one")
-  , Nothing
-  , Just (Read "two")
-  , Just (Read "/quit")
-  ]
-> output
-[ Just [Write "one"]
-, Nothing
-, Just [Write "two"]
-, Just [Write "Bye", Close]
-]
-```
-which looks pretty handy for use with `QuickCheck` or `HUnit`.
-
-In order to tie all of this together for actual usage we need to be able to convert our raw input events into events of type `Input`:
-```haskell
-handleInput :: EventSource String -> MomentIO (Event InputIO)
-handleInput i = do
-  eRead <- fromAddHandler . addHandler $ i
-  return $ Read <$> eRead
-```
-and we need to be able to convert values of `Output` into `IO` actions:
-```haskell
-handleOutput :: OutputIO -> IO ()
-handleOutput (Write s) = putStrLn s
-handleOutput Close = exitSuccess
-```
-
-Our overall network is now split into setting up our inputs, a pure and testable network to convert inputs into outputs, and a dealing with outputs: 
-```haskell
-networkDescription :: EventSource String -> MomentIO ()
-networkDescription s = do
-  i <- handleInput s
-  o <- liftMoment $ myTestableNetwork i
-  reactimate $ traverse_ handleOutput <$> o
-```
-We use `liftMoment` here to convert our network in the `Moment` monad into a network in the `MomentIO` monad.
-
-Voila! We have something that is both testable and usable.
-
-### Fanning in and out
-
-Scratch that "Voila!" though, because the network is still a bit of a mess.
-
-At the moment our event network has one event as input and one event as output.
-
-![](../images/network1.png)
-
-That is mostly a side effect of the fact that we're writing a command line application.
-
-We can see a hint of that if we look at the way that we're cramming two different outputs into `Output`.
-It is worth going further with this, in order to work out what the interesting events in our domain are.
-
-If we untangle things it might help with reuse, it'll give us smaller pieces that we can test, and it'll force us to think about what our system is really doing.
-
-In this case, I want to evolve this application into the back-end for a web-service, so when we get to there we'll have different input events coming from different endpoints.
-This will be easier if we can tease out some more structure.
-
-The first thing we can do is to identify our logical inputs and build a data structure to hold them:
-```haskell
-data Inputs = Inputs {
-    ieMessage        :: Event String
-  , ieQuit           :: Event ()
-  }
-```
-
-We then build a function that will be the bridge between our actual inputs and our logical inputs:
-```haskell
-fanOut :: Event InputIO -> Inputs
-fanOut eIn =
-  let
-    eRead = inputToRead eIn
-    eMessage = filterE (/= "/quit") eRead
-    eQuit = () <$ filterE (== "/quit") eCommand
-  in
-    Inputs eMessage eQuit
-```
-
-We'll build a similar data structure for our logical outputs:
-```haskell
-data Outputs = Outputs {
-    oeWrite :: [Event String]
-  , oeClose :: [Event ()]
-  }
-```
-and a function to bridge the gap:
-```haskell
-fanIn :: Outputs -> Event [OutputIO]
-fanIn (Outputs eWrites eCloses) =
-  let
-    eCombinedWrites = fmap (\x xs -> Write x : xs) <$> eWrites
-    eCombinedCloses = [(Close :) <$ leftmost eCloses]
-  in
-    fmap ($ []) .
-    unions $
-    eCombinedWrites ++ eCombinedCloses
-```
-
-We're dealing with multiple write events already, and it seems likely we'll end up with multiple close events, so `Outputs` contains lists for both of these.
-
-We also want to be doing the combining of these in `fanIn` rather than in our event network, since knowing how to combine them is something that involves information about both the logical and actual domains.
-You can see that in action in the code - we combine all of our write events by append them together, because we want all of the writes to happen, but we just use the leftmost close event, since we only want to close the application at most once.
-
-We end up with a network that looks like this:
-```haskell
-myLogicalNetwork :: Inputs -> Outputs
-myLogicalNetwork (Inputs eMessage eQuit) =
-  let
-    eWrites = [
-        eMessage
-      , "Bye" <$ eQuit
-      ]
-    eQuits = [
-        eQuit
-      ]
-  in
-    Outputs eWrites eQuits
-
-myTestableNetwork :: Event InputIO -> Moment (Event [OutputIO])
-myTestableNetwork =
-  return . fanIn . myLogicalNetwork . fanOut
-```
-which is a bit underwhelming.
-
-If we draw a block diagram for the system though, we've exposed a bit more of what is going on:
-
-![](../images/network2.png)
-
-It is worth pointing out that as an aside that we can test our `fanOut` component with `interpret` by introducing a new data type to collect the results:
-```haskell
-data FanOutResults =
-    FrMessage String
-  | FrQuit
-
-collectFanOutResults :: Inputs -> Event FanOutResults
-collectFanOutResults (Inputs eMessage eQuit _) =
-  leftmost [
-      FrMessage <$> eMessage
-    , FrQuit <$ eQuit
+  reactimate $ fmap putStrLn . leftmost $ [
+      "Hi" <$ eOpen
+    , eMessage
+    , "Bye" <$ eQuit
     ]
+  reactimate $ exitSuccess <$ eQuit
 ```
 
-### Handling unknown commands
-
-On the topic of the `fanOut` function, we should make some changes to help prepare for the future.
-
-We're going to treat all input strings that start with "/" as commands, and we want to reject any commands that we don't recognize or are otherwise ill-formed.
-We'll also ignore empty strings that are input.
-
-We'll need a new event in `Inputs`:
+Then we just need to hook everything up:
 ```haskell
-data Inputs = Inputs {
-    ieMessage        :: Event String
-  , ieQuit           :: Event ()
-  , ieUnknownCommand :: Event String
-  }
+go :: IO ()
+go = do
+  input <- mkInputSources
+  network <- compile $ networkDescription input
+  actuate network
+  eventLoop input
 ```
 
-Our new version of `fanOut` looks like this:
+### Adding a help command
+
+Next we're going to add a help command:
 ```haskell
-fanOut :: Event InputIO -> Inputs
-fanOut eIn =
+networkDescription :: InputSources -> MomentIO ()
+networkDescription (InputSources o r) = do
+  eOpen <- fromAddHandler . addHandler $ o
+  eRead <- fromAddHandler . addHandler $ r
+
   let
-    eRead =
-      filterE (not . null) $ inputToRead eIn
+    eMessage = filterE (/= "/" . take 1) eRead
+    eHelp    = () <$ filterE (== "/help") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
 
-    isMessage =
-      (/= "/") . take 1
-    eMessage =
-      filterE isMessage eRead
-
-    isCommand =
-      (== "/") . take 1
-    eCommand =
-      fmap (drop 1) . filterE isCommand $ eRead
-
-    eQuit =
-      () <$ filterE (== "quit") eCommand
-    eUnknownCommand =
-      filterE (/= "quit") eCommand
-  in
-    Inputs eMessage eQuit eUnknownCommand
+  reactimate $ fmap putStrLn . leftmost $ [
+      "Hi (type /help for instructions)" <$ eOpen
+    , eMessage
+    , "/help displays this message\n/quit exits the program" <$ eHelp
+    , "Bye" <$ eQuit
+    ]
+  reactimate $ exitSuccess <$ eQuit
 ```
-and is starting to exhibit some of the wall-of-text characteristics that you come across in FRP code.
 
-If you wanted to enhance that effect, you could inline `isMessage` and `isCommand` into the definitions of `eMessage` and `eCommand` respectively. 
+This involves altering `eMessage` so that it stays out of the way of the other commands.
 
-To go in the other direciton we could do change to a two stage approach, with the first stage filtering out empty inputs and splitting messages from other commands, and the second stage handling the commands themselves.
+### Detecting the use of unknown commands
 
-The change that the new event has on our network is fairly small:
+To top it all off, we're going to detect the use of unknown commands.
+
 ```haskell
-myLogicalNetwork :: Inputs -> Outputs
-myLogicalNetwork (Inputs eMessage eQuit eUnknownCommand) =
+networkDescription :: InputSources -> MomentIO ()
+networkDescription (InputSources o r) = do
+  eOpen <- fromAddHandler . addHandler $ o
+  eRead <- fromAddHandler . addHandler $ r
+
   let
-    eWrites = [
-        eMessage
-      , "Bye" <$ eQuit
-      , ("Unknown command: " ++) <$> eUnknownCommand
-      ]
-    eQuits = [
-        eQuit
-      ]
-  in
-    Outputs eWrites eQuits
-```
-which is usually a good sign.
+    eMessage = filterE (/= "/" . take 1) eRead
+    eCommand = fmap (drop 1) . filterE (== "/" . take 1) eRead
+    eHelp    = () <$ filterE (== "help") eCommand
+    eQuit    = () <$ filterE (== "quit") eCommand
 
-### Breaking things down even more
+    commands        = ["help", "quit"]
+    eUnknownCommand = () <$ filterE (`notElem` commands) eCommand
 
-The last change I want to play with is adding a component for each of the commands we want to handle.
-
-Some of the FRP examples end up with pretty big event network all defined in the one place.
-That can be fine once you're up to speed and now what you're doing.
-One thing I took away from the Manning Functional Reactive Programming book was that you can clarify things a great deal by creating data types for the inputs and outputs of your logical components and pulling out the description of how the inputs relate to the outputs out of the main event network.
-
-It might look like overkill, but you can always use fewer components with more going on inside each one.
-
-We have a pair of data types for handling messages, and a function to get from one to the other:
-```haskell
-data MessageInput = MessageInput {
-    mieRead :: Event String
-  }
-
-data MessageOutput = MessageOutput {
-    moeWrite :: Event String
-  }
-
-handleMessage :: MessageInput -> MessageOutput
-handleMessage (MessageInput eMessage) =
-  MessageOutput eMessage
+  reactimate $ fmap putStrLn . leftmost $ [
+      "Hi (type /help for instructions)" <$ eOpen
+    , eMessage
+    , "/help displays this message\n/quit exits the program" <$ eHelp
+    , "Bye" <$ eQuit
+    , (\x -> "Unknown command: " ++ x ++ " (type /help for instructions)") <$> eUnknownCommand
+    ]
+  reactimate $ exitSuccess <$ eQuit
 ```
 
-We have the same arrangement for handling the command to quit:
-```haskell
-data QuitInput = QuitInput {
-    qieQuit :: Event ()
-  }
+## Next up
 
-data QuitOutput = QuitOutput {
-    qoeWrite :: Event String
-  , qoeQuit  :: Event ()
-  }
+We've got our first little FRP application together, so we should be feeling pretty good.
 
-handleQuit :: QuitInput -> QuitOutput
-handleQuit (QuitInput eQuit) =
-  QuitOutput ("Bye" <$ eQuit) eQuit
-```
-which encapsulates our farewell message rather than leaving it hanging out in the middle of our event network.
+Soon we'll look at behaviors, which will let us write some more interesting programs.
 
-Unknown commands get a similar treatment:
-```haskell
-data UnknownCommandInput = UnknownCommandInput {
-    ucieUnknownCommand :: Event String
-  }
+Before that, we're going to refactor what we have to make it more testable and to make the pieces more reusable.
 
-data UnknownCommandOutput = UnknownCommandOutput {
-    ucoeUnknownCommand :: Event String
-  }
-
-handleUnknownCommand :: UnknownCommandInput -> UnknownCommandOutput
-handleUnknownCommand (UnknownCommandInput eUnknownCommand) =
-  UnknownCommandOutput (("Unknown command: " ++) <$> eUnknownCommand )
-```
-
-Our network that uses these pieces looks like this:
-```haskell
-myLogicalNetwork :: Inputs -> Outputs
-myLogicalNetwork (Inputs eMessage eQuit eUnknownCommand) =
-  let
-    MessageOutput emWrite = handleMessage $ MessageInput eMessage
-    QuitOutput eqWrite eqQuit = handleQuit $ QuitInput eQuit
-    UnknownCommandOutput eucWrite = handleUnknownCommand $ UnknownCommandInput eUnknownCommand
-  in
-    Outputs [emWrite, eqWrite, eucWrite] [eqQuit]
-```
-with a block diagram that looks like this:
-
-![](../images/network3.png)
-
-## Next time...
-
+[Onwards!](./refactoring.html)
