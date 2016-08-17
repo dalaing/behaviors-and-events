@@ -5,6 +5,7 @@ Maintainer  : dave.laing.80@gmail.com
 Stability   : experimental
 Portability : non-portable
 -}
+{-# LANGUAGE RecursiveDo #-}
 module Part2.Example1 (
     go_2_1
   ) where
@@ -57,9 +58,11 @@ handleInput i = do
   return $ Read <$> eRead
 
 data Inputs = Inputs {
-    ieMessage        :: Event String
-  , ieQuit           :: Event ()
-  , ieUnknownCommand :: Event String
+    ieMessage          :: Event String
+  , ieHistoryLimitUp   :: Event ()
+  , ieHistoryLimitDown :: Event ()
+  , ieQuit             :: Event ()
+  , ieUnknownCommand   :: Event String
   }
 
 fanOut :: Event InputIO -> Inputs
@@ -78,12 +81,28 @@ fanOut eIn =
     eCommand =
       fmap (drop 1) . filterE isCommand $ eRead
 
+    commands =
+     ["limitup", "limitdown", "quit"]
+
+    [eHistoryLimitUp, eHistoryLimitDown, eQuit] =
+      fmap (\x -> () <$ filterE (== x) eCommand) commands
+
+    eUnknownCommand =
+      filterE (`notElem` commands) eCommand
+
+{-
+    eHistoryLimitUp =
+      () <$ filterE (== "limitup") eCommand
+    eHistoryLimitUp =
+      () <$ filterE (== "limitdown") eCommand
     eQuit =
       () <$ filterE (== "quit") eCommand
+
     eUnknownCommand =
-      filterE (/= "quit") eCommand
+      filterE (`notElem` ["limitup", "limitdown", "quit"]) eCommand
+-}
   in
-    Inputs eMessage eQuit eUnknownCommand
+    Inputs eMessage eHistoryLimitUp eHistoryLimitDown eQuit eUnknownCommand
 
 data Outputs = Outputs {
     oeWrite :: [Event String]
@@ -100,6 +119,75 @@ fanIn (Outputs eWrites eCloses) =
     unions $
     eCombinedWrites ++ eCombinedCloses
 
+data HistoryLimitInput = HistoryLimitInput {
+    hlieLimitUp :: Event ()
+  , hlieLimitDown :: Event ()
+  }
+
+data HistoryLimitOutput = HistoryLimitOutput {
+    hloeLimit :: Event Int
+  , hlobLimit :: Behavior Int
+  }
+
+handleHistoryLimit :: MonadMoment m => HistoryLimitInput -> m HistoryLimitOutput
+handleHistoryLimit (HistoryLimitInput eUp eDown) = do
+  (eLimit, bLimit) <- mapAccum 1 . fmap (\f x -> (f x, f x)) . unions $ [
+      (+ 1) <$ eUp
+    , (max 0 . subtract 1) <$ eDown
+    ]
+  return $ HistoryLimitOutput eLimit bLimit
+
+data HistoryInput = HistoryInput {
+    hieMessage :: Event String
+  , hieLimit :: Event Int
+  , hibLimit :: Behavior Int
+  }
+
+data HistoryOutput = HistoryOutput {
+    -- possibly want behavior of history as well
+    -- hoeHistory :: Event [String]
+    hoeWrite :: Event String
+  }
+
+data History = History {
+    hLimit :: Int
+  , hMessages :: [String]
+  }
+
+changeLimit :: Int -> History -> History
+changeLimit n (History _ ms) =
+  History n (take n ms)
+
+addMessage :: String -> History -> History
+addMessage m (History n ms) =
+  History n (take n $ m : ms)
+
+handleHistory :: MonadMoment m => HistoryInput -> m HistoryOutput
+handleHistory (HistoryInput eMessage eLimit _) = do
+  bHistory <- accumB (History 1 []) . unions $ [
+      changeLimit <$> eLimit
+    , addMessage <$> eMessage
+    ]
+  let
+    f (History l ms) = "(last " ++ show l ++ "message: " ++ show ms ++ ")"
+    eWrite = f <$> bHistory <@ eMessage
+  return $ HistoryOutput eWrite
+
+addMessage2 :: Int -> String -> [String] -> [String]
+addMessage2 n m ms =
+  take n (m : ms)
+
+handleHistory2 :: MonadMoment m => HistoryInput -> m HistoryOutput
+handleHistory2 (HistoryInput eMessage eLimit bLimit) = do
+  bHistory <- accumB [] . unions $ [
+      take <$> eLimit
+    , addMessage2 <$> bLimit <@> eMessage
+    ]
+  let
+    f l h = "(last " ++ show l ++ "message: " ++ show h ++ ")"
+    eWrite = f <$> bLimit <*> bHistory <@ eMessage
+  return $ HistoryOutput eWrite
+
 data MessageInput = MessageInput {
     mieRead :: Event String
   }
@@ -109,13 +197,13 @@ data MessageOutput = MessageOutput {
   , mobLines :: Behavior Int
   }
 
-handleMessage :: MessageInput -> Moment MessageOutput
+handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage (MessageInput eMessage) = do
   bLines <- accumB 0 ((+ 1) <$ eMessage)
   return $ MessageOutput eMessage bLines
 
 -- TODO break up into all the different versions from the blog
-handleMessage1 :: MessageInput -> Moment MessageOutput
+handleMessage1 :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage1 (MessageInput eMessage) = do
   bMessages <- stepper "" eMessage
   let
@@ -123,7 +211,7 @@ handleMessage1 (MessageInput eMessage) = do
     eOut = f <$> bMessages <@> eMessage
   return $ MessageOutput eOut (pure 0)
 
-handleMessage2 :: MessageInput -> Moment MessageOutput
+handleMessage2 :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage2 (MessageInput eMessage) = do
   bMessages <- stepper "" eMessage
   let
@@ -132,8 +220,46 @@ handleMessage2 (MessageInput eMessage) = do
     eOut = f <$> bLastLength <@> eMessage
   return $ MessageOutput eOut (pure 0)
 
-handleMessage3 :: MessageInput -> Moment MessageOutput
+handleMessage3 :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage3 (MessageInput eMessage) = do
+  bMessages <- accumB [] . fmap (:) $ eMessage
+  let
+    f ms m = m ++ " (last messages: " ++ show ms ++ ")"
+    eOut = f <$> bMessages <@> eMessage
+  return $ MessageOutput eOut (pure 0)
+
+handleMessage4 :: MonadMoment m => MessageInput -> m MessageOutput
+handleMessage4 (MessageInput eMessage) = do
+  let
+    limitCons n x xs = take n (x : xs)
+  bMessages <- accumB [] . fmap (limitCons 3) $ eMessage
+  let
+    f ms m = m ++ " (last 3 messages: " ++ show ms ++ ")"
+    eOut = f <$> bMessages <@> eMessage
+  return $ MessageOutput eOut (pure 0)
+
+handleMessage5 :: MonadMoment m => MessageInput -> m MessageOutput
+handleMessage5 (MessageInput eMessage) = do
+  bMessages <- accumB [] . fmap (:) $ eMessage
+  let
+    bLimit = pure 3
+    bLimitedMessages = take <$> bLimit <*> bMessages
+    f ms m = m ++ " (last 3 messages: " ++ show ms ++ ")"
+    eOut = f <$> bLimitedMessages <@> eMessage
+  return $ MessageOutput eOut (pure 0)
+
+handleMessage6 :: MonadMoment m => MessageInput -> m MessageOutput
+handleMessage6 (MessageInput eMessage) = do
+  bMessages <- accumB [] . fmap (:) $ eMessage
+  let
+    bLimit = pure 3
+    bLimitedMessages = take <$> bLimit <*> bMessages
+    f l ms m = m ++ " (last " ++ show l ++ " messages: " ++ show ms ++ ")"
+    eOut = f <$> bLimit <*> bLimitedMessages <@> eMessage
+  return $ MessageOutput eOut (pure 0)
+
+handleMessage7 :: MonadMoment m => MessageInput -> m MessageOutput
+handleMessage7 (MessageInput eMessage) = do
   bLines <- accumB 0 ((+ 1) <$ eMessage)
   bMessages <- stepper "" eMessage
   let
@@ -143,8 +269,8 @@ handleMessage3 (MessageInput eMessage) = do
     eOut = f <$> bLinesNow <*> bLastLength <@> eMessage
   return $ MessageOutput eOut bLines
 
-handleMessage4 :: MessageInput -> Moment MessageOutput
-handleMessage4 (MessageInput eMessage) = do
+handleMessage8 :: MonadMoment m => MessageInput -> m MessageOutput
+handleMessage8 (MessageInput eMessage) = do
   bLines <- accumB 0 ((+ 1) <$ eMessage)
   let
     f m (c, _) = (c + 1, m)
@@ -154,8 +280,8 @@ handleMessage4 (MessageInput eMessage) = do
     eOut = g <$> ePair
   return $ MessageOutput eOut bLines
 
-handleMessage5 :: MessageInput -> Moment MessageOutput
-handleMessage5 (MessageInput eMessage) = do
+handleMessage9 :: MonadMoment m => MessageInput -> m MessageOutput
+handleMessage9 (MessageInput eMessage) = do
   let
     f m (c, _) = (c + 1, m)
   (ePair, bPair) <- mapAccum (0, "") . fmap (\f x -> (f x, f x)) $ (f <$> eMessage)
@@ -166,7 +292,7 @@ handleMessage5 (MessageInput eMessage) = do
   return $ MessageOutput eOut bLines
 
 data QuitInput = QuitInput {
-    qieQuit :: Event ()
+    qieQuit  :: Event ()
   , qibLines :: Behavior Int
   }
 
@@ -191,17 +317,19 @@ handleUnknownCommand :: UnknownCommandInput -> UnknownCommandOutput
 handleUnknownCommand (UnknownCommandInput eUnknownCommand) =
   UnknownCommandOutput (("Unknown command: " ++) <$> eUnknownCommand )
 
-myLogicalNetwork :: Inputs -> Moment Outputs
-myLogicalNetwork (Inputs eMessage eQuit eUnknownCommand) = do
+myLogicalNetwork :: MonadMoment m => Inputs -> m Outputs
+myLogicalNetwork (Inputs eMessage eLimitUp eLimitDown eQuit eUnknownCommand) = do
+  HistoryLimitOutput eLimit bLimit <- handleHistoryLimit $ HistoryLimitInput eLimitUp eLimitDown
+  HistoryOutput ehWrite <- handleHistory $ HistoryInput eMessage eLimit bLimit
   MessageOutput emWrite bLines <- handleMessage $ MessageInput eMessage
   let
     QuitOutput eqWrite eqQuit = handleQuit $ QuitInput eQuit bLines
     UnknownCommandOutput eucWrite = handleUnknownCommand $ UnknownCommandInput eUnknownCommand
-  return $ Outputs [emWrite, eqWrite, eucWrite] [eqQuit]
+  return $ Outputs [emWrite, ehWrite, eqWrite, eucWrite] [eqQuit]
 
-myTestableNetwork :: Event InputIO -> Moment (Event [OutputIO])
+myTestableNetwork :: MonadMoment m => Event InputIO -> m (Event [OutputIO])
 myTestableNetwork eIn = do
-  n <- liftMoment . myLogicalNetwork . fanOut $ eIn
+  n <- myLogicalNetwork . fanOut $ eIn
   return $ fanIn n
 
 example1 :: [Maybe InputIO]

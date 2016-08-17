@@ -7,15 +7,18 @@ Portability : non-portable
 -}
 module Part1.Example4 (
     go_1_4
-  , myTestableNetwork
-  , InputIO(..)
-  , OutputIO(..)
-  , example1
+  , testNetwork
+  , myNetwork2
+  , InputCmd(..)
+  , OutputCmd(..)
+  , example1Output
   ) where
 
 import           Control.Monad              (forever)
 import           Data.Foldable              (traverse_)
 import           System.Exit                (exitSuccess)
+
+import           Data.Profunctor
 
 import           Reactive.Banana
 import           Reactive.Banana.Frameworks
@@ -35,100 +38,158 @@ mkEventSource :: IO (EventSource a)
 mkEventSource =
   uncurry EventSource <$> newAddHandler
 
-setupInput :: IO (EventSource String)
-setupInput =
-  mkEventSource
+data InputSources = InputSources {
+    isOpen :: EventSource ()
+  , isRead :: EventSource String
+  }
 
-data InputIO =
-  Read String
+mkInputSources :: IO InputSources
+mkInputSources =
+  InputSources <$> mkEventSource <*> mkEventSource
+
+data InputIO = InputIO {
+    ioeOpen :: Event ()
+  , ioeRead :: Event String
+  }
+
+data InputCmd =
+    Open
+  | Read String
   deriving (Eq, Ord, Show)
 
-inputToRead :: Event InputIO -> Event String
-inputToRead eIn =
-    filterJust $ maybeRead <$> eIn
-  where
+fanInput :: Event InputCmd -> InputIO
+fanInput eIn =
+  let
+    maybeOpen Open = Just ()
+    maybeOpen _    = Nothing
+    eOpen = filterJust $ maybeOpen <$> eIn
+
     maybeRead (Read x) = Just x
     maybeRead _ = Nothing
+    eRead = filterJust $ maybeRead <$> eIn
+  in
+    InputIO eOpen eRead
 
-data OutputIO =
+mergeInput :: InputIO -> Event InputCmd
+mergeInput (InputIO eOpen eRead) =
+  leftmost [
+      Open <$ eOpen
+    , Read <$> eRead
+    ]
+
+handleInput :: InputSources -> MomentIO InputIO
+handleInput (InputSources iso isr) = do
+  eOpen <- fromAddHandler . addHandler $ iso
+  eRead <- fromAddHandler . addHandler $ isr
+  return $ InputIO eOpen eRead
+
+data OutputIO = OutputIO {
+    ioeWrite :: Event String
+  , ioeClose :: Event ()
+  }
+
+data OutputCmd =
     Write String
   | Close
   deriving (Eq, Ord, Show)
 
-handleInput :: EventSource String -> MomentIO (Event InputIO)
-handleInput i = do
-  eRead <- fromAddHandler . addHandler $ i
-  return $ Read <$> eRead
+fanOutput :: Event [OutputCmd] -> OutputIO
+fanOutput eOut =
+  let
+    gatherWrite (Write x) = x
+    gatherWrite _ = []
+
+    combineWrites = (>>= gatherWrite)
+
+    eWrite = filterE (not . null) $ combineWrites <$> eOut
+
+    eClose = () <$ filterE (Close `elem`) eOut
+  in
+    OutputIO eWrite eClose
+
+mergeOutput :: OutputIO -> Event [OutputCmd]
+mergeOutput (OutputIO eWrite eClose) =
+  unionWith (++)
+    ((\x -> [Write x]) <$> eWrite)
+    ([Close] <$ eClose)
+
+handleOutput :: OutputIO -> MomentIO ()
+handleOutput (OutputIO eWrite eClose) = do
+  reactimate $ putStrLn <$> eWrite
+  reactimate $ exitSuccess <$ eClose
+
+mkNetwork :: (InputIO -> Moment OutputIO) -> InputSources -> MomentIO ()
+mkNetwork fn input = do
+  i <- handleInput input
+  o <- liftMoment $ fn i
+  handleOutput o
+
+testNetwork :: (InputIO -> Moment OutputIO) -> [Maybe InputCmd] -> IO [Maybe [OutputCmd]]
+testNetwork =
+  interpret .
+  runStar .
+  dimap fanInput mergeOutput .
+  Star
+  -- interpret $ \i -> do
+  --  o <- fn . fanInput $ i
+  --  return $ mergeOutput o
+
+--
 
 data Inputs = Inputs {
-    ieMessage        :: Event String
+    ieOpen           :: Event ()
+  , ieMessage        :: Event String
+  , ieHelp           :: Event ()
   , ieQuit           :: Event ()
   , ieUnknownCommand :: Event String
   }
 
-fanOutOld :: Event InputIO -> Inputs
-fanOutOld eIn =
+fanOut :: InputIO -> Inputs
+fanOut (InputIO eOpen eRead) =
   let
-    eRead = inputToRead eIn
-    eMessage = filterE (/= "/quit") eRead
-    eQuit = () <$ filterE (== "/quit") eRead
-  in
-    Inputs eMessage eQuit never
-
-data FanOutResults =
-    FrMessage String
-  | FrQuit
-
-collectFanOutResults :: Inputs -> Event FanOutResults
-collectFanOutResults (Inputs eMessage eQuit _) =
-  leftmost [
-      FrMessage <$> eMessage
-    , FrQuit <$ eQuit
-    ]
-
-fanOut :: Event InputIO -> Inputs
-fanOut eIn =
-  let
-    eRead =
-      filterE (not . null) $ inputToRead eIn
+    eReadNonEmpty =
+      filterE (not . null) eRead
 
     isMessage =
       (/= "/") . take 1
     eMessage =
-      filterE isMessage eRead
+      filterE isMessage eReadNonEmpty
 
     isCommand =
       (== "/") . take 1
     eCommand =
-      fmap (drop 1) . filterE isCommand $ eRead
+      fmap (drop 1) . filterE isCommand $ eReadNonEmpty
 
-    eQuit =
-      () <$ filterE (== "quit") eCommand
+    commands =
+      ["help", "quit"]
+    [eHelp, eQuit] =
+      fmap (\x -> () <$ filterE (== x) eCommand) commands
     eUnknownCommand =
-      filterE (/= "quit") eCommand
+      filterE (`notElem` commands) eCommand
   in
-    Inputs eMessage eQuit eUnknownCommand
+    Inputs eOpen eMessage eHelp eQuit eUnknownCommand
 
 data Outputs = Outputs {
     oeWrite :: [Event String]
   , oeClose :: [Event ()]
   }
 
-fanIn :: Outputs -> Event [OutputIO]
+fanIn :: Outputs -> OutputIO
 fanIn (Outputs eWrites eCloses) =
   let
-    eCombinedWrites = fmap (\x xs -> Write x : xs) <$> eWrites
-    eCombinedCloses = [(Close :) <$ leftmost eCloses]
+    addLine x y = x ++ '\n' : y
+    eCombinedWrites = foldr (unionWith addLine) never eWrites
+    eCombinedCloses = () <$ leftmost eCloses
   in
-    fmap ($ []) .
-    unions $
-    eCombinedWrites ++ eCombinedCloses
+    OutputIO eCombinedWrites eCombinedCloses
 
 myLogicalNetwork :: Inputs -> Outputs
-myLogicalNetwork (Inputs eMessage eQuit eUnknownCommand) =
+myLogicalNetwork (Inputs eOpen eMessage eHelp eQuit eUnknownCommand) =
   let
     eWrites = [
-        eMessage
+        "Welcome to the echo program!" <$ eOpen
+      , eMessage
+      , "/help displays this message\n/quit exits the program" <$ eHelp
       , "Bye" <$ eQuit
       , ("Unknown command: " ++) <$> eUnknownCommand
       ]
@@ -138,9 +199,24 @@ myLogicalNetwork (Inputs eMessage eQuit eUnknownCommand) =
   in
     Outputs eWrites eQuits
 
-myTestableNetwork :: Event InputIO -> Moment (Event [OutputIO])
+myTestableNetwork :: InputIO -> Moment OutputIO
 myTestableNetwork =
   return . fanIn . myLogicalNetwork . fanOut
+
+data OpenInput = OpenInput {
+   oieOpen :: Event ()
+ }
+
+data OpenOutput = OpenOutput {
+   ooeWrite :: Event String
+ }
+
+handleOpen :: OpenInput -> OpenOutput
+handleOpen (OpenInput eOpen) =
+  let
+    eWrite = "Welcome to the echo program!" <$ eOpen
+  in
+    OpenOutput eWrite
 
 data MessageInput = MessageInput {
     mieRead :: Event String
@@ -153,6 +229,22 @@ data MessageOutput = MessageOutput {
 handleMessage :: MessageInput -> MessageOutput
 handleMessage (MessageInput eMessage) =
   MessageOutput eMessage
+
+data HelpInput = HelpInput {
+   hieHelp :: Event ()
+ }
+
+data HelpOutput = HelpOutput {
+   hoeWrite :: Event String
+ }
+
+handleHelp :: HelpInput -> HelpOutput
+handleHelp (HelpInput eHelp) =
+  let
+    eWrite = "/help displays this message\n/quit exits the program" <$ eHelp
+  in
+    HelpOutput eWrite
+
 
 data QuitInput = QuitInput {
     qieQuit :: Event ()
@@ -180,40 +272,36 @@ handleUnknownCommand (UnknownCommandInput eUnknownCommand) =
   UnknownCommandOutput (("Unknown command: " ++) <$> eUnknownCommand )
 
 myLogicalNetwork2 :: Inputs -> Outputs
-myLogicalNetwork2 (Inputs eMessage eQuit eUnknownCommand) =
+myLogicalNetwork2 (Inputs eOpen eMessage eHelp eQuit eUnknownCommand) =
   let
+    OpenOutput eoWrite = handleOpen $ OpenInput eOpen
     MessageOutput emWrite = handleMessage $ MessageInput eMessage
+    HelpOutput ehWrite = handleHelp $ HelpInput eHelp
     QuitOutput eqWrite eqQuit = handleQuit $ QuitInput eQuit
     UnknownCommandOutput eucWrite = handleUnknownCommand $ UnknownCommandInput eUnknownCommand
   in
-    Outputs [emWrite, eqWrite, eucWrite] [eqQuit]
+    Outputs [eoWrite, emWrite, ehWrite, eqWrite, eucWrite] [eqQuit]
 
-myTestableNetwork2 :: Event InputIO -> Moment (Event [OutputIO])
-myTestableNetwork2 =
+myNetwork2 :: InputIO -> Moment OutputIO
+myNetwork2 =
   return . fanIn . myLogicalNetwork2 . fanOut
 
-example1 :: [Maybe InputIO]
-example1 = [Just (Read "one"), Nothing, Just (Read "two"), Just (Read "/quit")]
+example1Input :: [Maybe InputCmd]
+example1Input = [Just (Read "one"), Nothing, Just (Read "two"), Just (Read "/quit")]
 
-handleOutput :: OutputIO -> IO ()
-handleOutput (Write s) = putStrLn s
-handleOutput Close = exitSuccess
+example1Output :: IO [Maybe [OutputCmd]]
+example1Output = testNetwork myNetwork2 example1Input
 
-networkDescription :: EventSource String -> MomentIO ()
-networkDescription s = do
-  i <- handleInput s
-  o <- liftMoment $ myTestableNetwork i
-  reactimate $ traverse_ handleOutput <$> o
-
-eventLoop :: EventSource String -> IO ()
-eventLoop s =
+eventLoop :: InputSources -> IO ()
+eventLoop (InputSources o r) = do
+  fire o ()
   forever $ do
     x <- getLine
-    fire s x
+    fire r x
 
 go_1_4 :: IO ()
 go_1_4 = do
-  input <- setupInput
-  network <- compile $ networkDescription input
+  input <- mkInputSources
+  network <- compile $ mkNetwork myNetwork2 input
   actuate network
   eventLoop input

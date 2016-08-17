@@ -79,12 +79,14 @@ fanOut eIn =
     eCommand =
       fmap (drop 1) . filterE isCommand $ eRead
 
-    eUpgrade =
-      () <$ filterE (== "upgrade") eCommand
-    eQuit =
-      () <$ filterE (== "quit") eCommand
+    commands =
+     ["upgrade", "quit"]
+
+    [eUpgrade, eQuit] =
+      fmap (\x -> () <$ filterE (== x) eCommand) commands
+
     eUnknownCommand =
-      filterE (`notElem` ["upgrade", "quit"]) eCommand
+      filterE (`notElem` commands) eCommand
   in
     Inputs eMessage eUpgrade eQuit eUnknownCommand
 
@@ -120,14 +122,6 @@ data AccountType =
   | Premium
   deriving (Eq, Ord, Show)
 
-softUpgradeCheck :: AccountType -> Int -> Bool
-softUpgradeCheck Plebian x = x `mod` 5 == 4
-softUpgradeCheck Premium x = False
-
-hardUpgradeCheck :: AccountType -> Int -> Bool
-hardUpgradeCheck Plebian x = x >= 9
-hardUpgradeCheck Premium x = False
-
 data UpgradeInput = UpgradeInput {
     uieUpgrade :: Event ()
   }
@@ -136,9 +130,9 @@ data UpgradeOutput = UpgradeOutput {
     uobAccount :: Behavior AccountType
   }
 
-upgrade :: UpgradeInput -> Moment UpgradeOutput
+upgrade :: MonadMoment m => UpgradeInput -> m UpgradeOutput
 upgrade (UpgradeInput eUpgrade) = do
-  bFns <- switchB (pure Plebian) (pure Premium <$ eUpgrade)
+  bFns <- stepper Plebian (Premium <$ eUpgrade)
   return $ UpgradeOutput bFns
 
 data QuitInput = QuitInput {
@@ -169,92 +163,183 @@ handleUnknownCommand :: UnknownCommandInput -> UnknownCommandOutput
 handleUnknownCommand (UnknownCommandInput eUnknownCommand) =
   UnknownCommandOutput (("Unknown command: " ++) <$> eUnknownCommand )
 
-data CounterInput = CounterInput {
-    cieMessage :: Event String
-  , cieQuit    :: Event ()
-  , cibAccount :: Behavior AccountType
+data CounterInputOld = CounterInputOld {
+    cioeMessage :: Event String
+  , cioeQuit    :: Event ()
   }
 
-data CounterOutput = CounterOutput {
-    coeMessage :: Event String
-  , coeQuit    :: Event ()
+data CounterOutputOld = CounterOutputOld {
+    cooeMessage :: Event String
   }
 
-counter1 :: CounterInput -> Moment CounterOutput
-counter1 (CounterInput eMessage eQuit _) = do
+counter1 :: MonadMoment m => CounterInputOld -> m CounterOutputOld
+counter1 (CounterInputOld eMessage eQuit) = do
   bLines <- accumB 0 ((+ 1) <$ eMessage)
   let
     f l = show l ++ " messages sent"
     eOut = f <$> bLines <@ eQuit
-  return $ CounterOutput eOut never
+  return $ CounterOutputOld eOut
 
-counter2 :: CounterInput -> Moment CounterOutput
-counter2 (CounterInput eMessage eQuit _) = do
+data LimitInput = LimitInput {
+    lieSoftLimit :: Event ()
+  , lieHardLimit :: Event ()
+  }
+
+data LimitOutput = LimitOutput {
+    loeWrite :: Event String
+  , loeQuit  :: Event ()
+  }
+
+handleLimit :: LimitInput -> LimitOutput
+handleLimit (LimitInput eSoftLimit eHardLimit) =
+  let
+    eSoftLimitMessage =
+      "You are using a Plebian account.  Consider upgrading to a Premium account for unlimited messages" <$ eSoftLimit
+    eHardLimitMessage =
+      "You have reached your message limit for a Plebian account, please upgrade" <$ eHardLimit
+    eMessage =
+      leftmost [
+          eHardLimitMessage
+        , eSoftLimitMessage
+        ]
+    eQuit =
+      eHardLimit
+  in
+    LimitOutput eMessage eQuit
+
+data CounterInput = CounterInput {
+    cieMessage :: Event String
+  , cibAccount :: Behavior AccountType
+  }
+
+softLimitCheck :: AccountType -> Int -> Bool
+softLimitCheck Plebian x = x `mod` 5 == 4
+softLimitCheck Premium x = False
+
+hardLimitCheck :: AccountType -> Int -> Bool
+hardLimitCheck Plebian x = x >= 9
+hardLimitCheck Premium x = False
+
+counter2 :: MonadMoment m => CounterInput -> m LimitInput
+counter2 (CounterInput eMessage bAccount) = do
   bLines <- accumB 0 ((+ 1) <$ eMessage)
   let
-    bSoftLimitReached = (\x -> x `mod` 5 == 4) <$> bLines
-    eSoftLimitReached = whenE bSoftLimitReached eMessage
-    bHardLimitReached = (>= 9) <$> bLines
-    eHardLimitReached = whenE bHardLimitReached eMessage
-    eSoftMessage = "You are using a Plebian account, consider upgrading" <$ eSoftLimitReached
-    eHardMessage = "You have reached your message limit for a Plebian account, consider upgrading" <$ eHardLimitReached
-    eMessageOut = leftmost [eHardMessage, eSoftMessage]
-    eQuitOut = () <$ eHardLimitReached
-  return $ CounterOutput eMessageOut eQuitOut
+    bSoftLimitReached = softLimitCheck <$> bAccount <*> bLines
+    bHardLimitReached = hardLimitCheck <$> bAccount <*> bLines
 
-counter3 :: CounterInput -> Moment CounterOutput
-counter3 (CounterInput eMessage eQuit _) = do
+    eSoftLimitReached = () <$ whenE bSoftLimitReached eMessage
+    eHardLimitReached = () <$ whenE bHardLimitReached eMessage
+  return $ LimitInput eSoftLimitReached eHardLimitReached
+
+softLimitCheck2 :: Int -> AccountType -> Int -> Bool
+softLimitCheck2 n Plebian x = x `mod` n == (n - 1)
+softLimitCheck2 _ Premium _ = False
+
+hardLimitCheck2 :: Int -> AccountType -> Int -> Bool
+hardLimitCheck2 n Plebian x = x >= (n - 1)
+hardLimitCheck2 _ Premium _ = False
+
+counter3 :: MonadMoment m => CounterInput -> m LimitInput
+counter3 (CounterInput eMessage bAccount) = do
+  bLines <- accumB 0 ((+ 1) <$ eMessage)
   let
     bSoftLimit = pure 5
     bHardLimit = pure 10
+
+    bSoftLimitReached = softLimitCheck2 <$> bSoftLimit <*> bAccount <*> bLines
+    bHardLimitReached = hardLimitCheck2 <$> bHardLimit <*> bAccount <*> bLines
+
+    eSoftLimitReached = () <$ whenE bSoftLimitReached eMessage
+    eHardLimitReached = () <$ whenE bHardLimitReached eMessage
+  return $ LimitInput eSoftLimitReached eHardLimitReached
+
+counter4 :: MonadMoment m => CounterInput -> m LimitInput
+counter4 (CounterInput eMessage bAccount) = do
+  eLines <- accumE (-1) ((+ 1) <$ eMessage)
+  let
+    bSoftLimit = pure 5
+    bHardLimit = pure 10
+
+    bSoftLimitFn = softLimitCheck2 <$> bSoftLimit <*> bAccount
+    bHardLimitFn = hardLimitCheck2 <$> bHardLimit <*> bAccount
+
+    eSoftLimitReached = () <$ filterApply bSoftLimitFn eLines
+    eHardLimitReached = () <$ filterApply bHardLimitFn eLines
+  return $ LimitInput eSoftLimitReached eHardLimitReached
+
+softLimitCheck3 :: Int -> Int -> Bool
+softLimitCheck3 n x = x `mod` n == (n - 1)
+
+hardLimitCheck3 :: Int -> Int -> Bool
+hardLimitCheck3 n x = x >= (n - 1)
+
+data LimitInput2 = LimitInput2 {
+    lieUpgrade     :: Event ()
+  , lieMessage     :: Event String
+  , libSoftLimitFn :: Behavior (Int -> Bool)
+  , libHardLimitFn :: Behavior (Int -> Bool)
+  }
+
+data LimitOutput2 = LimitOutput2 {
+    lobSoftLimitReached :: Behavior Bool
+  , lobHardLimitReached :: Behavior Bool
+  }
+
+plebianLimit :: MonadMoment m => LimitInput2 -> m LimitOutput2
+plebianLimit (LimitInput2 _ eMessage bSoftLimitFn bHardLimitFn) = do
   bLines <- accumB 0 ((+ 1) <$ eMessage)
   let
-    bSoftLimitReached = (\n x -> x `mod` n == (n - 1)) <$> bSoftLimit <*> bLines
-    eSoftLimitReached = whenE bSoftLimitReached eMessage
-    bHardLimitReached = (\n x -> x >= (n - 1)) <$> bHardLimit <*> bLines
-    eHardLimitReached = whenE bHardLimitReached eMessage
-    eSoftMessage = "You are using a Plebian account, consider upgrading" <$ eSoftLimitReached
-    eHardMessage = "You have reached your message limit for a Plebian account, consider upgrading" <$ eHardLimitReached
-    eMessageOut = leftmost [eHardMessage, eSoftMessage]
-    eQuitOut = () <$ eHardLimitReached
-  return $ CounterOutput eMessageOut eQuitOut
+    bSoftLimitReached = bSoftLimitFn <*> bLines
+    bHardLimitReached = bHardLimitFn <*> bLines
+  return $ LimitOutput2 bSoftLimitReached bHardLimitReached
 
-counter4 :: CounterInput -> Moment CounterOutput
-counter4 (CounterInput eMessage eQuit _) = do
+limit :: MonadMoment m => LimitInput2 -> m LimitOutput2
+limit li@(LimitInput2 eUpgrade _ _ _) = do
   let
-    bSoftLimit = pure $ \x -> x `mod` 5 == 4
-    bHardLimit = pure $ \x -> x >= 9
-  eLines <- accumE (-1) ((+ 1) <$ eMessage)
-  let
-    eSoftLimitReached = filterApply bSoftLimit eLines
-    eHardLimitReached = filterApply bHardLimit eLines
-    eSoftMessage = "You are using a Plebian account, consider upgrading" <$ eSoftLimitReached
-    eHardMessage = "You have reached your message limit for a Plebian account, consider upgrading" <$ eHardLimitReached
-    eMessageOut = leftmost [eHardMessage, eSoftMessage]
-    eQuitOut = () <$ eHardLimitReached
-  return $ CounterOutput eMessageOut eQuitOut
+    bPremiumLimitReached = pure False
+  LimitOutput2 bPlebianSoftLimitReached bPlebianHardLimitReached <- plebianLimit li
+  bSoftLimitReached <- switchB bPlebianSoftLimitReached (bPremiumLimitReached <$ eUpgrade)
+  bHardLimitReached <- switchB bPlebianHardLimitReached (bPremiumLimitReached <$ eUpgrade)
+  return $ LimitOutput2 bSoftLimitReached bHardLimitReached
 
-counter5 :: CounterInput -> Moment CounterOutput
-counter5 (CounterInput eMessage eQuit bAccount) = do
+counter5 :: MonadMoment m => Event () -> CounterInput -> m LimitInput
+counter5 eUpgrade (CounterInput eMessage _) = do
+  LimitOutput2 bSoftLimitReached bHardLimitReached <- limit $ LimitInput2 eUpgrade eMessage (softLimitCheck3 <$> pure 5) (hardLimitCheck3 <$> pure 10)
   let
-    bSoftLimit = softUpgradeCheck <$> bAccount
-    bHardLimit = hardUpgradeCheck <$> bAccount
-  eLines <- accumE (-1) ((+ 1) <$ eMessage)
+    eSoftLimitReached = () <$ whenE bSoftLimitReached eMessage
+    eHardLimitReached = () <$ whenE bHardLimitReached eMessage
+  return $ LimitInput eSoftLimitReached eHardLimitReached
+
+counter6Pleb :: MonadMoment m => CounterInput -> m LimitInput
+counter6Pleb (CounterInput eMessage _) = do
+  bLines <- accumB 0 ((+ 1) <$ eMessage)
   let
-    eSoftLimitReached = filterApply bSoftLimit eLines
-    eHardLimitReached = filterApply bHardLimit eLines
-    eSoftMessage = "You are using a Plebian account, consider upgrading" <$ eSoftLimitReached
-    eHardMessage = "You have reached your message limit for a Plebian account, consider upgrading" <$ eHardLimitReached
-    eMessageOut = leftmost [eHardMessage, eSoftMessage]
-    eQuitOut = () <$ eHardLimitReached
-  return $ CounterOutput eMessageOut eQuitOut
+    bSoftLimit = pure 5
+    bHardLimit = pure 10
 
--- TODO a version where the counter function is what get switched
+    bSoftLimitReached = softLimitCheck3 <$> bSoftLimit <*> bLines
+    bHardLimitReached = hardLimitCheck3 <$> bHardLimit <*> bLines
 
-myLogicalNetwork :: Inputs -> Moment Outputs
+    eSoftLimitReached = () <$ whenE bSoftLimitReached eMessage
+    eHardLimitReached = () <$ whenE bHardLimitReached eMessage
+  return $ LimitInput eSoftLimitReached eHardLimitReached
+
+counter6Prem :: MonadMoment m => CounterInput -> m LimitInput
+counter6Prem _ = return $ LimitInput never never
+
+counter6 :: MonadMoment m => Event () -> Event () -> CounterInput -> m LimitInput
+counter6 eOpen eUpgrade ci = do
+  LimitInput plebSoft plebHard <- counter6Pleb ci
+  LimitInput premSoft premHard <- counter6Prem ci
+  eSoft <- switchE . leftmost $ [plebSoft <$ eOpen, premSoft <$ eUpgrade]
+  eHard <- switchE . leftmost $ [plebHard <$ eOpen, premHard <$ eUpgrade]
+  return $
+    LimitInput eSoft eHard
+
+myLogicalNetwork :: MonadMoment m => Inputs -> m Outputs
 myLogicalNetwork (Inputs eMessage eUpgrade eQuit eUnknownCommand) = do
   UpgradeOutput bAccount <- upgrade $ UpgradeInput eUpgrade
-  CounterOutput ecWrite ecQuit <- counter5 $ CounterInput eMessage eQuit bAccount
+  LimitOutput ecWrite ecQuit <- fmap handleLimit . counter5 eUpgrade $ CounterInput eMessage bAccount
   let
     MessageOutput emWrite = handleMessage $ MessageInput eMessage
     QuitOutput eqWrite eqQuit = handleQuit $ QuitInput eQuit

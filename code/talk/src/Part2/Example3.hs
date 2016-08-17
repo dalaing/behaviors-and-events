@@ -13,6 +13,9 @@ import           Control.Monad              (forever)
 import           Data.Foldable              (traverse_)
 import           System.Exit                (exitSuccess)
 
+import           Data.Profunctor
+import qualified Data.Set                   as S
+
 import           Reactive.Banana
 import           Reactive.Banana.Frameworks
 
@@ -40,31 +43,94 @@ mkInputSources :: IO InputSources
 mkInputSources =
   InputSources <$> mkEventSource <*> mkEventSource
 
-data InputIO =
+data InputIO = InputIO {
+    ioeOpen :: Event ()
+  , ioeRead :: Event String
+  }
+
+data InputCmd =
     Open
   | Read String
   deriving (Eq, Ord, Show)
 
-inputToRead :: Event InputIO -> Event String
-inputToRead eIn =
-    filterJust $ maybeRead <$> eIn
-  where
+fanInput :: Event InputCmd -> InputIO
+fanInput eIn =
+  let
+    maybeOpen Open = Just ()
+    maybeOpen _    = Nothing
+    eOpen = filterJust $ maybeOpen <$> eIn
+
     maybeRead (Read x) = Just x
     maybeRead _ = Nothing
+    eRead = filterJust $ maybeRead <$> eIn
+  in
+    InputIO eOpen eRead
 
-data OutputIO =
+mergeInput :: InputIO -> Event InputCmd
+mergeInput (InputIO eOpen eRead) =
+  leftmost [
+      Open <$ eOpen
+    , Read <$> eRead
+    ]
+
+-- have main logic in terms of InputIO -> Moment OutputIO
+-- add a test harness so that can be exposed in terms of Event InputCmd -> Moment (Event [OutputCmd])
+handleInput :: InputSources -> MomentIO InputIO
+handleInput (InputSources iso isr) = do
+  eOpen <- fromAddHandler . addHandler $ iso
+  eRead <- fromAddHandler . addHandler $ isr
+  return $ InputIO eOpen eRead
+
+data OutputIO = OutputIO {
+    ioeWrite :: Event String
+  , ioeClose :: Event ()
+  }
+
+data OutputCmd =
     Write String
   | Close
   deriving (Eq, Ord, Show)
 
-handleInput :: InputSources -> MomentIO (Event InputIO)
-handleInput (InputSources iso isr) = do
-  eOpen <- fromAddHandler . addHandler $ iso
-  eRead <- fromAddHandler . addHandler $ isr
-  return $ leftmost [
-      Open <$ eOpen
-    , Read <$> eRead
-    ]
+fanOutput :: Event [OutputCmd] -> OutputIO
+fanOutput eOut =
+  let
+    gatherWrite (Write x) = x
+    gatherWrite _ = []
+
+    combineWrites = (>>= gatherWrite)
+
+    eWrite = filterE (not . null) $ combineWrites <$> eOut
+
+    eClose = () <$ filterE (Close `elem`) eOut
+  in
+    OutputIO eWrite eClose
+
+mergeOutput :: OutputIO -> Event [OutputCmd]
+mergeOutput (OutputIO eWrite eClose) =
+  unionWith (++)
+    ((\x -> [Write x]) <$> eWrite)
+    ([Close] <$ eClose)
+
+handleOutput :: OutputIO -> MomentIO ()
+handleOutput (OutputIO eWrite eClose) = do
+  reactimate $ putStrLn <$> eWrite
+  reactimate $ exitSuccess <$ eClose
+
+mkNetwork :: (InputIO -> Moment OutputIO) -> InputSources -> MomentIO ()
+mkNetwork fn input = do
+  i <- handleInput input
+  o <- liftMoment $ fn i
+  handleOutput o
+
+testNetwork :: (InputIO -> Moment OutputIO) -> [Maybe InputCmd] -> IO [Maybe [OutputCmd]]
+testNetwork =
+  interpret .
+  runStar .
+  dimap fanInput mergeOutput .
+  Star
+  -- interpret $ \i -> do
+  --  o <- fn (fanInput i)
+  --  return $ mergeOutput o
 
   -- TODO some kind of pre-open phase?
   -- if we're using eOpen and eValidName to drive the phases
@@ -89,98 +155,107 @@ handleInput (InputSources iso isr) = do
   -- how do we pull eValidName out of a homogoneous set of behaviours that we are choosing between?
   -- maybe go for a superset-template of the different phases and plug the holes with `never` - not sure what to do when behaviours are meant to come out of these things - maybe they can't
 data Phase =
-    NamePrompting
+    PreOpen
+  | NamePrompting
   | CommandProccessing
   deriving (Eq, Ord, Show)
 
 data PhaseInput = PhaseInput {
-    pibName :: Behavior (Maybe String)
+    pieOpened     :: Event ()
+  , pieNameChosen :: Event ()
   }
 
 data PhaseOutput = PhaseOutput {
     pobPhase :: Behavior Phase
   }
 
-handlePhase :: PhaseInput -> PhaseOutput
-handlePhase (PhaseInput bName) =
-  let
-    f Nothing = NamePrompting
-    f (Just _) = CommandProccessing
-    bPhase = f <$> bName
-  in
-    PhaseOutput bPhase
+handlePhase :: MonadMoment m => PhaseInput -> m PhaseOutput
+handlePhase (PhaseInput eOpen eName) = do
+  bPhase <- stepper PreOpen . leftmost $ [
+      NamePrompting <$ eOpen
+    , CommandProccessing <$ eName
+    ]
+  return $ PhaseOutput bPhase
 
 data NameInput = NameInput {
-    nieIn :: Event InputIO
+    nieIn    :: InputIO
+  , nieNames :: Behavior (S.Set String)
   }
 
 data NameError =
     EmptyName
   | MultiWordName String
   | IllegalCharNameError String
+  | NameAlreadyInUse String
   deriving (Eq, Ord, Show)
 
+-- we either want eNamePrompt to kick things over (while staying separate from IO)
+-- or eWrite, to handle the prompting when things gets started and printing errors messages
+-- when error occur
 data NameOutput = NameOutput {
-    nieNameValid :: Event String
+    nieNameValid   :: Event String
   , nieNameInvalid :: Event NameError
-  , nibName :: Behavior (Maybe String)
+  , nibName        :: Behavior String
   }
 
 handleName :: NameInput -> Moment NameOutput
-handleName (NameInput eIn) = do
+handleName (NameInput (InputIO eOpen eRead) bNames) = do
   let
-    eRead = inputToRead eIn
-    f s =
+    f names s =
       case words s of
         [] ->
           Left EmptyName
-        [x] ->
-          if '/' `elem` x
-          then Left $ IllegalCharNameError s
-          else Right s
+        [x]
+          | '/' `elem` x ->
+            Left $ IllegalCharNameError s
+          | s `S.member` names ->
+            Left $ NameAlreadyInUse s
+          | otherwise ->
+            Right s
         _ ->
           Left $ MultiWordName s
-    (eInvalid, eValid) = split . fmap f $ eRead
-  bName <- stepper Nothing . fmap Just $ eValid
+    (eInvalid, eValid) = split $ f <$> bNames <@> eRead
+  bName <- stepper "" eValid
   return $ NameOutput eValid eInvalid bName
 
 data Inputs = Inputs {
-    ieMessage        :: Event String
-  , ieUpgrade        :: Event ()
+    ieOpen           :: Event ()
+  , ieMessage        :: Event String
   , ieQuit           :: Event ()
   , ieUnknownCommand :: Event String
   }
 
-fanOut :: Event InputIO -> Inputs
-fanOut eIn =
+fanOut :: InputIO -> Inputs
+fanOut (InputIO eOpen eRead) =
   let
-    eRead =
-      filterE (not . null) $ inputToRead eIn
+    eReadNonEmpty =
+      filterE (not . null) $ eRead
 
     isMessage =
       (/= "/") . take 1
     eMessage =
-      filterE isMessage eRead
+      filterE isMessage eReadNonEmpty
 
     isCommand =
       (== "/") . take 1
     eCommand =
-      fmap (drop 1) . filterE isCommand $ eRead
+      fmap (drop 1) . filterE isCommand $ eReadNonEmpty
 
-    eUpgrade =
-      () <$ filterE (== "upgrade") eCommand
-    eQuit =
-      () <$ filterE (== "quit") eCommand
+    commands =
+      ["quit"]
+    [eQuit] =
+      fmap (\x -> () <$ filterE (== x) eCommand) commands
     eUnknownCommand =
-      filterE (`notElem` ["upgrade", "quit"]) eCommand
+      filterE (`notElem` commands) eCommand
   in
-    Inputs eMessage eUpgrade eQuit eUnknownCommand
+    Inputs eOpen eMessage eQuit eUnknownCommand
 
 data Outputs = Outputs {
     oeWrite :: [Event String]
   , oeClose :: [Event ()]
   }
 
+{-
 fanIn :: Outputs -> Event [OutputIO]
 fanIn (Outputs eWrites eCloses) =
   let
@@ -190,6 +265,7 @@ fanIn (Outputs eWrites eCloses) =
     fmap ($ []) .
     unions $
     eCombinedWrites ++ eCombinedCloses
+-}
 
 data MessageInput = MessageInput {
     mieRead :: Event String
@@ -232,21 +308,24 @@ handleUnknownCommand (UnknownCommandInput eUnknownCommand) =
   UnknownCommandOutput (("Unknown command: " ++) <$> eUnknownCommand )
 
 myLogicalNetwork :: Inputs -> Moment Outputs
-myLogicalNetwork (Inputs eMessage eUpgrade eQuit eUnknownCommand) = do
+myLogicalNetwork (Inputs eOpen eMessage eQuit eUnknownCommand) = do
   let
     MessageOutput emWrite = handleMessage $ MessageInput eMessage
     QuitOutput eqWrite eqQuit = handleQuit $ QuitInput eQuit
     UnknownCommandOutput eucWrite = handleUnknownCommand $ UnknownCommandInput eUnknownCommand
   return $ Outputs [emWrite, eqWrite, eucWrite] [eqQuit]
 
-myTestableNetwork :: Event InputIO -> Moment (Event [OutputIO])
+{-
+myTestableNetwork :: Event InputCmd -> Moment (Event [OutputCmd])
 myTestableNetwork eIn = do
   n <- liftMoment . myLogicalNetwork . fanOut $ eIn
   return $ fanIn n
+-}
 
-example1 :: [Maybe InputIO]
+example1 :: [Maybe InputCmd]
 example1 = [Just (Read "one"), Nothing, Just (Read "two"), Just (Read "/quit")]
 
+{-
 handleOutput :: OutputIO -> IO ()
 handleOutput (Write s) = putStrLn s
 handleOutput Close = exitSuccess
@@ -256,6 +335,7 @@ networkDescription is = do
   i <- handleInput is
   o <- liftMoment $ myTestableNetwork i
   reactimate $ traverse_ handleOutput <$> o
+-}
 
 eventLoop :: InputSources -> IO ()
 eventLoop (InputSources o r) = do
@@ -267,6 +347,7 @@ eventLoop (InputSources o r) = do
 go_2_3 :: IO ()
 go_2_3 = do
   inputSources <- mkInputSources
-  network <- compile $ networkDescription inputSources
+--  network <- compile $ networkDescription inputSources
+  network <- compile $ mkNetwork undefined inputSources
   actuate network
   eventLoop inputSources

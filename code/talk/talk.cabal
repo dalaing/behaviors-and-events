@@ -19,11 +19,15 @@ library
   exposed-modules:     Part1.Example1
                      , Part1.Example2
                      , Part1.Example3
+                     , Part1.Example4
                      , Part2.Example1
                      , Part2.Example2
                      , Part2.Example3
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.8 && <4.9, reactive-banana >= 1.1 && < 1.2
+  build-depends:       base >=4.8 && <4.9
+                     , reactive-banana >= 1.1 && < 1.2
+                     , profunctors >= 5.2 && < 5.3
+                     , containers >= 0.5 && < 0.6
   hs-source-dirs:      src
   default-language:    Haskell2010
