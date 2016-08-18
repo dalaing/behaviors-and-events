@@ -107,8 +107,8 @@ importantWork eCount <span class="fu">=</span>
       eBuzz
   <span class="kw">in</span>
     eFizzBuzz</code></pre></div>
-<p>That’s right. I totally went there.</p>
 <h2 id="connecting-the-event-network">Connecting the event network</h2>
+<h5 id="the-code-for-this-section-is-here"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example1.hs">(The code for this section is here)</a></h5>
 <p>Now that we’ve looking a little at the inside of the event network, it is time to take a look at how these things look from the outside.</p>
 <p>We’re going to be doing this by breaking ground on our first FRP application, which will be a command line application that echoes input.</p>
 <p>It’ll get more impressive soon, I promise.</p>
@@ -163,6 +163,7 @@ go <span class="fu">=</span> <span class="kw">do</span>
 <h2 id="improvements-to-the-echo-program">Improvements to the echo program</h2>
 <p>We can improve this program quite a bit.</p>
 <h3 id="adding-the-ability-to-quit">Adding the ability to quit</h3>
+<h5 id="the-code-for-this-section-is-here-1"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example2.hs">(The code for this section is here)</a></h5>
 <p>Let us start by adding the ability to quit the program when the user types “/quit”:</p>
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">import </span><span class="dt">System.Exit</span> (exitSuccess) 
 
@@ -178,6 +179,7 @@ networkDescription i <span class="fu">=</span> <span class="kw">do</span>
   reactimate <span class="fu">$</span> exitSuccess <span class="fu">&lt;$</span> eQuit</code></pre></div>
 <p>So far, so good.</p>
 <h3 id="printing-a-message-on-exit">Printing a message on exit</h3>
+<h5 id="the-code-for-this-section-is-here-2"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example3.hs">(The code for this section is here)</a></h5>
 <p>Now let’s say goodbye to the user before we go.</p>
 <p>We’re going to introduce some helper functions here, to help deal with multiple non-simultaneous events. We know they’re non-simultaneous because they’re all going to be derived from <code>eRead</code>.</p>
 <p>First we have</p>
@@ -204,6 +206,7 @@ networkDescription i <span class="fu">=</span> <span class="kw">do</span>
     ]
   reactimate <span class="fu">$</span> exitSuccess <span class="fu">&lt;$</span> eQuit</code></pre></div>
 <h3 id="printing-a-greeting">Printing a greeting</h3>
+<h5 id="the-code-for-this-section-is-here-3"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example4.hs">(The code for this section is here)</a></h5>
 <p>We’ve said goodbye, so we should probably also say hello.</p>
 <p>In order to do that, our event network is going to need to know when the program has started.</p>
 <p>We’ll add a new <code>EventSource</code> for that, and we’ll collect the <code>EventSource</code>s together into a data structure:</p>
@@ -246,6 +249,7 @@ go <span class="fu">=</span> <span class="kw">do</span>
   actuate network
   eventLoop input</code></pre></div>
 <h3 id="adding-a-help-command">Adding a help command</h3>
+<h5 id="the-code-for-this-section-is-here-4"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example5.hs">(The code for this section is here)</a></h5>
 <p>Next we’re going to add a help command:</p>
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">networkDescription ::</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
 networkDescription (<span class="dt">InputSources</span> o r) <span class="fu">=</span> <span class="kw">do</span>
@@ -266,6 +270,7 @@ networkDescription (<span class="dt">InputSources</span> o r) <span class="fu">=
   reactimate <span class="fu">$</span> exitSuccess <span class="fu">&lt;$</span> eQuit</code></pre></div>
 <p>This involves altering <code>eMessage</code> so that it stays out of the way of the other commands.</p>
 <h3 id="detecting-the-use-of-unknown-commands">Detecting the use of unknown commands</h3>
+<h5 id="the-code-for-this-section-is-here-5"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example6.hs">(The code for this section is here)</a></h5>
 <p>To top it all off, we’re going to detect the use of unknown commands.</p>
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">networkDescription ::</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
 networkDescription (<span class="dt">InputSources</span> o r) <span class="fu">=</span> <span class="kw">do</span>
@@ -273,13 +278,13 @@ networkDescription (<span class="dt">InputSources</span> o r) <span class="fu">=
   eRead <span class="ot">&lt;-</span> fromAddHandler <span class="fu">.</span> addHandler <span class="fu">$</span> r
 
   <span class="kw">let</span>
-    eMessage <span class="fu">=</span> filterE (<span class="fu">/=</span> <span class="st">&quot;/&quot;</span> <span class="fu">.</span> take <span class="dv">1</span>) eRead
-    eCommand <span class="fu">=</span> fmap (drop <span class="dv">1</span>) <span class="fu">.</span> filterE (<span class="fu">==</span> <span class="st">&quot;/&quot;</span> <span class="fu">.</span> take <span class="dv">1</span>) eRead
+    eMessage <span class="fu">=</span> filterE ((<span class="fu">/=</span> <span class="st">&quot;/&quot;</span>) <span class="fu">.</span> take <span class="dv">1</span>) eRead
+    eCommand <span class="fu">=</span> fmap (drop <span class="dv">1</span>) <span class="fu">.</span> filterE ((<span class="fu">==</span> <span class="st">&quot;/&quot;</span>) <span class="fu">.</span> take <span class="dv">1</span>) <span class="fu">$</span> eRead
     eHelp    <span class="fu">=</span> () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;help&quot;</span>) eCommand
     eQuit    <span class="fu">=</span> () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;quit&quot;</span>) eCommand
 
     commands        <span class="fu">=</span> [<span class="st">&quot;help&quot;</span>, <span class="st">&quot;quit&quot;</span>]
-    eUnknownCommand <span class="fu">=</span> () <span class="fu">&lt;$</span> filterE (<span class="ot">`notElem`</span> commands) eCommand
+    eUnknownCommand <span class="fu">=</span> filterE (<span class="ot">`notElem`</span> commands) eCommand
 
   reactimate <span class="fu">$</span> fmap putStrLn <span class="fu">.</span> leftmost <span class="fu">$</span> [
       <span class="st">&quot;Hi (type /help for instructions)&quot;</span> <span class="fu">&lt;$</span> eOpen
@@ -289,6 +294,7 @@ networkDescription (<span class="dt">InputSources</span> o r) <span class="fu">=
     , (\x <span class="ot">-&gt;</span> <span class="st">&quot;Unknown command: &quot;</span> <span class="fu">++</span> x <span class="fu">++</span> <span class="st">&quot; (type /help for instructions)&quot;</span>) <span class="fu">&lt;$&gt;</span> eUnknownCommand
     ]
   reactimate <span class="fu">$</span> exitSuccess <span class="fu">&lt;$</span> eQuit</code></pre></div>
+<p>We’ve also cleaned up a few bits and pieces along the way.</p>
 <h2 id="next-up">Next up</h2>
 <p>We’ve got our first little FRP application together, so we should be feeling pretty good.</p>
 <p>Soon we’ll look at behaviors, which will let us write some more interesting programs.</p>

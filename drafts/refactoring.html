@@ -43,13 +43,13 @@ networkDescription (<span class="dt">InputSources</span> o r) <span class="fu">=
   eRead <span class="ot">&lt;-</span> fromAddHandler <span class="fu">.</span> addHandler <span class="fu">$</span> r
 
   <span class="kw">let</span>
-    eMessage <span class="fu">=</span> filterE (<span class="fu">/=</span> <span class="st">&quot;/&quot;</span> <span class="fu">.</span> take <span class="dv">1</span>) eRead
-    eCommand <span class="fu">=</span> fmap (drop <span class="dv">1</span>) <span class="fu">.</span> filterE (<span class="fu">==</span> <span class="st">&quot;/&quot;</span> <span class="fu">.</span> take <span class="dv">1</span>) eRead
+    eMessage <span class="fu">=</span> filterE ((<span class="fu">/=</span> <span class="st">&quot;/&quot;</span>) <span class="fu">.</span> take <span class="dv">1</span>) eRead
+    eCommand <span class="fu">=</span> fmap (drop <span class="dv">1</span>) <span class="fu">.</span> filterE ((<span class="fu">==</span> <span class="st">&quot;/&quot;</span>) <span class="fu">.</span> take <span class="dv">1</span>) <span class="fu">$</span> eRead
     eHelp    <span class="fu">=</span> () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;help&quot;</span>) eCommand
     eQuit    <span class="fu">=</span> () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;quit&quot;</span>) eCommand
 
     commands        <span class="fu">=</span> [<span class="st">&quot;help&quot;</span>, <span class="st">&quot;quit&quot;</span>]
-    eUnknownCommand <span class="fu">=</span> () <span class="fu">&lt;$</span> filterE (<span class="ot">`notElem`</span> commands) eCommand
+    eUnknownCommand <span class="fu">=</span> filterE (<span class="ot">`notElem`</span> commands) eCommand
 
   reactimate <span class="fu">$</span> fmap putStrLn <span class="fu">.</span> leftmost <span class="fu">$</span> [
       <span class="st">&quot;Hi (type /help for instructions)&quot;</span> <span class="fu">&lt;$</span> eOpen
@@ -60,6 +60,7 @@ networkDescription (<span class="dt">InputSources</span> o r) <span class="fu">=
     ]
   reactimate <span class="fu">$</span> exitSuccess <span class="fu">&lt;$</span> eQuit</code></pre></div>
 <h2 id="separating-out-the-io">Separating out the IO</h2>
+<h5 id="the-code-for-this-section-is-here"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example1.hs">(The code for this section is here)</a></h5>
 <p>We are currently doing IO whenever we like in our event network.</p>
 <p>This can be <em>really</em> handy in some circumstances, but it can be a bit of a burden if you have an event network that you want to test.</p>
 <p>In aid of that, we’re going to separate out the bits of the event network that deal with IO and the bits of the event network that are pure.</p>
@@ -96,13 +97,13 @@ mkNetwork fn input <span class="fu">=</span> <span class="kw">do</span>
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">pureNetworkDescription ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">InputIO</span> <span class="ot">-&gt;</span> m <span class="dt">OutputIO</span> 
 pureNetworkDescription (<span class="dt">InputIO</span> eOpen eRead) <span class="fu">=</span>
   <span class="kw">let</span>
-    eMessage <span class="fu">=</span> filterE (<span class="fu">/=</span> <span class="st">&quot;/&quot;</span> <span class="fu">.</span> take <span class="dv">1</span>) eRead
-    eCommand <span class="fu">=</span> fmap (drop <span class="dv">1</span>) <span class="fu">.</span> filterE (<span class="fu">==</span> <span class="st">&quot;/&quot;</span> <span class="fu">.</span> take <span class="dv">1</span>) eRead
+    eMessage <span class="fu">=</span> filterE ((<span class="fu">/=</span> <span class="st">&quot;/&quot;</span>) <span class="fu">.</span> take <span class="dv">1</span>) eRead
+    eCommand <span class="fu">=</span> fmap (drop <span class="dv">1</span>) <span class="fu">.</span> filterE ((<span class="fu">==</span> <span class="st">&quot;/&quot;</span>) <span class="fu">.</span> take <span class="dv">1</span>) <span class="fu">$</span> eRead
     eHelp    <span class="fu">=</span> () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;help&quot;</span>) eCommand
     eQuit    <span class="fu">=</span> () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;quit&quot;</span>) eCommand
 
     commands        <span class="fu">=</span> [<span class="st">&quot;help&quot;</span>, <span class="st">&quot;quit&quot;</span>]
-    eUnknownCommand <span class="fu">=</span> () <span class="fu">&lt;$</span> filterE (<span class="ot">`notElem`</span> commands) eCommand
+    eUnknownCommand <span class="fu">=</span> filterE (<span class="ot">`notElem`</span> commands) eCommand
 
     eWrite <span class="fu">=</span> leftmost [
         <span class="st">&quot;Hi (type /help for instructions)&quot;</span> <span class="fu">&lt;$</span> eOpen
@@ -118,6 +119,7 @@ pureNetworkDescription (<span class="dt">InputIO</span> eOpen eRead) <span class
 networkDescription <span class="fu">=</span> 
   mkNetwork pureNetworkDescription</code></pre></div>
 <h2 id="a-little-more-separation">A little more separation</h2>
+<h5 id="the-code-for-this-section-is-here-1"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example2.hs">(The code for this section is here)</a></h5>
 <p>We’re currently not doing any IO in <code>pureNetworkDescription</code>, but its boundaries are defined entirely by events related to IO.</p>
 <p>We can add another layer of indirection here in order to get away from having to express things in those terms.</p>
 <p>We start, as we usually do, by making a new data type.</p>
@@ -190,11 +192,12 @@ domainNetworkDescription (<span class="dt">Inputs</span> eOpen eMessage eHelp eQ
   <span class="kw">in</span>
     return <span class="fu">$</span> <span class="dt">Outputs</span> eWrites eQuits</code></pre></div>
 <p>which can be transformed into what we had before by using the corresponding new functions:</p>
-<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">pureNetworkDescription ::</span> <span class="dt">MonadMomemnt</span> m <span class="ot">=&gt;</span> <span class="dt">InputIO</span> <span class="ot">-&gt;</span> m <span class="dt">OutputIO</span>
-pureNetworkDescription <span class="fu">=</span> <span class="kw">do</span> 
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">pureNetworkDescription ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">InputIO</span> <span class="ot">-&gt;</span> m <span class="dt">OutputIO</span>
+pureNetworkDescription i <span class="fu">=</span> <span class="kw">do</span> 
   o <span class="ot">&lt;-</span> domainNetworkDescription <span class="fu">.</span> fanOut <span class="fu">$</span> i
   return <span class="fu">$</span> fanIn o</code></pre></div>
 <h2 id="a-lot-more-separation">A lot more separation</h2>
+<h5 id="the-code-for-this-section-is-here-2"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example3.hs">(The code for this section is here)</a></h5>
 <p>The middle section of <code>domainNetworkDescription</code> is still a bit of a mess. We can clean this up by componentizing the various pieces of functionality that are in play.</p>
 <p>Some of the FRP examples end up with pretty big event network all defined in the one place. That can be fine once you’re up to speed and now what you’re doing.</p>
 <p>One thing I took away from the Manning Functional Reactive Programming book was that you can clarify things a great deal by creating data types for the inputs and outputs of your logical components and pulling out the description of how the inputs relate to the outputs out of the main event network.</p>
@@ -267,7 +270,7 @@ handleUnknown (<span class="dt">UnknownInput</span> eUnknown) <span class="fu">=
   <span class="kw">in</span>
     return <span class="fu">.</span> <span class="dt">UnknownOutput</span> <span class="fu">$</span> msg <span class="fu">&lt;$&gt;</span> eUnknown</code></pre></div>
 <p>We can stitch all of these together like so:</p>
-<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">domainNetworkDescription ::</span> <span class="dt">Inputs</span> <span class="ot">-&gt;</span> <span class="dt">Moment</span> <span class="dt">Outputs</span>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">domainNetworkDescription ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">Inputs</span> <span class="ot">-&gt;</span> m <span class="dt">Outputs</span>
 domainNetworkDescription (<span class="dt">Inputs</span> eOpen eMessage eHelp eQuit eUnknown) <span class="fu">=</span> <span class="kw">do</span>
   <span class="dt">OpenOutput</span> eoWrite        <span class="ot">&lt;-</span> handleOpen <span class="fu">$</span> <span class="dt">OpenInput</span> eOpen
   <span class="dt">MessageOutput</span> emWrite     <span class="ot">&lt;-</span> handleMessage <span class="fu">$</span> <span class="dt">MessageInput</span> eMessage
@@ -277,6 +280,7 @@ domainNetworkDescription (<span class="dt">Inputs</span> eOpen eMessage eHelp eQ
   return <span class="fu">$</span> <span class="dt">Outputs</span> [eoWrite, emWrite, ehWrite, eqWrite, euWrite] [eqQuit]</code></pre></div>
 <p>and now we’re free to tweak the internals of some of these without exposing everything to the body of <code>domainNetworkDescription.</code></p>
 <h2 id="refactoring-for-testing">Refactoring for testing</h2>
+<h5 id="the-code-for-this-section-is-here-3"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example4.hs">(The code for this section is here)</a></h5>
 <p>There’s a tantalizing function available in <code>reactive-banana</code>.</p>
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">interpret ::</span> (<span class="dt">Event</span> a <span class="ot">-&gt;</span> <span class="dt">Moment</span> (<span class="dt">Event</span> b)) <span class="ot">-&gt;</span> [<span class="dt">Maybe</span> a] <span class="ot">-&gt;</span> <span class="dt">IO</span> [<span class="dt">Maybe</span> b] </code></pre></div>
 <p>According to the haddocks, the IO is an implementation detail but you can otherwise treat it as a pure function.</p>
@@ -315,13 +319,13 @@ mergeOutput (<span class="dt">OutputIO</span> eWrite eClose) <span class="fu">=<
     ([<span class="dt">Close</span>] <span class="fu">&lt;$</span> eClose)</code></pre></div>
 <p>and we package it up neatly:</p>
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">testNetwork ::</span> (<span class="dt">InputIO</span> <span class="ot">-&gt;</span> <span class="dt">Moment</span> <span class="dt">OutputIO</span>) <span class="ot">-&gt;</span> [<span class="dt">Maybe</span> <span class="dt">InputCmd</span>] <span class="ot">-&gt;</span> <span class="dt">IO</span> [<span class="dt">Maybe</span> [<span class="dt">OutputCmd</span>]]
-testNetwork <span class="fu">=</span>
+testNetwork fn <span class="fu">=</span>
   interpret <span class="fu">$</span> \i <span class="ot">-&gt;</span> <span class="kw">do</span>
     o <span class="ot">&lt;-</span> fn <span class="fu">.</span> fanInput <span class="fu">$</span> i
     return <span class="fu">$</span> mergeOutput o</code></pre></div>
 <p>From that we can create a testing function:</p>
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">testIOCmds ::</span> [<span class="dt">Maybe</span> <span class="dt">InputCmd</span>] <span class="ot">-&gt;</span> <span class="dt">IO</span> [<span class="dt">Maybe</span> [<span class="dt">OutputCmd</span>]]
-testIOCmds <span class="fu">=</span> testNetwork domainNetworkDescription</code></pre></div>
+testIOCmds <span class="fu">=</span> testNetwork pureNetworkDescription</code></pre></div>
 <p>without having to modify our network description at all.</p>
 <p>With some formatting liberties in the output, it behaves admirably when we take it for a spin:</p>
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="fu">&gt;</span> output <span class="ot">&lt;-</span> testIOCmds [
