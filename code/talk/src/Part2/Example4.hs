@@ -5,8 +5,9 @@ Maintainer  : dave.laing.80@gmail.com
 Stability   : experimental
 Portability : non-portable
 -}
-module Part2.Example2 (
-    go_2_2
+module Part2.Example4 (
+    go_2_4
+  , testIOCmds
   ) where
 
 import           Control.Monad              (forever)
@@ -69,6 +70,44 @@ mkNetwork fn input = do
   o <- liftMoment $ fn i
   handleOutput o
 
+data InputCmd =
+    Open
+  | Read String
+  deriving (Eq, Ord, Show)
+
+fanInput :: Event InputCmd -> InputIO
+fanInput eIn =
+  let
+    maybeOpen Open = Just ()
+    maybeOpen _    = Nothing
+    eOpen = filterJust $ maybeOpen <$> eIn
+
+    maybeRead (Read x) = Just x
+    maybeRead _ = Nothing
+    eRead = filterJust $ maybeRead <$> eIn
+  in
+    InputIO eOpen eRead
+
+data OutputCmd =
+    Write String
+  | Close
+  deriving (Eq, Ord, Show)
+
+mergeOutput :: OutputIO -> Event [OutputCmd]
+mergeOutput (OutputIO eWrite eClose) =
+  unionWith (++)
+    ((\x -> [Write x]) <$> eWrite)
+    ([Close] <$ eClose)
+
+testNetwork :: (InputIO -> Moment OutputIO) -> [Maybe InputCmd] -> IO [Maybe [OutputCmd]]
+testNetwork fn =
+  interpret $ \i -> do
+    o <- fn . fanInput $ i
+    return $ mergeOutput o
+
+testIOCmds :: [Maybe InputCmd] -> IO [Maybe [OutputCmd]]
+testIOCmds = testNetwork pureNetworkDescription
+
 data Inputs = Inputs {
     ieOpen           :: Event ()
   , ieMessage        :: Event String
@@ -117,21 +156,67 @@ fanIn (Outputs eWrites eCloses) =
   in
     OutputIO eCombinedWrites eCombinedCloses
 
-domainNetworkDescription :: MonadMoment m => Inputs -> m Outputs
-domainNetworkDescription (Inputs eOpen eMessage eHelp eQuit eUnknownCommand) =
+data OpenInput  = OpenInput  { oieOpen  :: Event () }
+data OpenOutput = OpenOutput { ooeWrite :: Event String }
+
+handleOpen :: MonadMoment m => OpenInput -> m OpenOutput
+handleOpen (OpenInput eOpen) =
   let
-    eWrites = [
-        "Hi (type /help for instructions)" <$ eOpen
-      , eMessage
-      , "/help displays this message\n/quit exits the program" <$ eHelp
-      , "Bye" <$ eQuit
-      , (\x -> "Unknown command: " ++ x ++ " (type /help for instructions)") <$> eUnknownCommand
-      ]
-    eQuits = [
-        eQuit
-      ]
+    eWrite = "Hi (type /help for instructions)" <$ eOpen
   in
-    return $ Outputs eWrites eQuits
+    return $ OpenOutput eWrite
+
+data MessageInput  = MessageInput  { mieRead  :: Event String }
+data MessageOutput = MessageOutput { moeWrite :: Event String }
+
+handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
+handleMessage (MessageInput eMessage) =
+  return $ MessageOutput eMessage
+
+data HelpInput  = HelpInput  { hieHelp  :: Event () }
+data HelpOutput = HelpOutput { hoeWrite :: Event String }
+
+handleHelp :: MonadMoment m => HelpInput -> m HelpOutput
+handleHelp (HelpInput eHelp) =
+  let
+    eWrite = "/help displays this message\n/quit exits the program" <$ eHelp
+  in
+    return $ HelpOutput eWrite
+
+data QuitInput = QuitInput {
+    qieQuit :: Event ()
+  }
+
+data QuitOutput = QuitOutput {
+    qoeWrite :: Event String
+  , qoeQuit  :: Event ()
+  }
+
+handleQuit :: MonadMoment m => QuitInput -> m QuitOutput
+handleQuit (QuitInput eQuit) =
+  let
+    eWrite = "Bye" <$ eQuit
+  in
+    return $ QuitOutput eWrite eQuit
+
+data UnknownInput  = UnknownInput  { ucieCommand :: Event String }
+data UnknownOutput = UnknownOutput { ucoeWrite   :: Event String }
+
+handleUnknown :: MonadMoment m => UnknownInput -> m UnknownOutput
+handleUnknown (UnknownInput eUnknown) =
+  let
+      msg x = "Unknown command: " ++ x ++ " (type /help for instructions)"
+  in
+    return . UnknownOutput $ msg <$> eUnknown
+
+domainNetworkDescription :: MonadMoment m => Inputs -> m Outputs
+domainNetworkDescription (Inputs eOpen eMessage eHelp eQuit eUnknown) = do
+  OpenOutput eoWrite        <- handleOpen $ OpenInput eOpen
+  MessageOutput emWrite     <- handleMessage $ MessageInput eMessage
+  HelpOutput ehWrite        <- handleHelp $ HelpInput eHelp
+  QuitOutput eqWrite eqQuit <- handleQuit $ QuitInput eQuit
+  UnknownOutput euWrite     <- handleUnknown $ UnknownInput eUnknown
+  return $ Outputs [eoWrite, emWrite, ehWrite, eqWrite, euWrite] [eqQuit]
 
 pureNetworkDescription :: MonadMoment m => InputIO -> m OutputIO
 pureNetworkDescription i = do
@@ -149,8 +234,8 @@ eventLoop (InputSources o r) = do
     x <- getLine
     fire r x
 
-go_2_2 :: IO ()
-go_2_2 = do
+go_2_4 :: IO ()
+go_2_4 = do
   input <- mkInputSources
   network <- compile $ networkDescription input
   actuate network

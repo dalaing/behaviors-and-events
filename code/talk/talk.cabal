@@ -20,9 +20,29 @@ library
                      , Part1.Example2
                      , Part1.Example3
                      , Part1.Example4
+                     , Part1.Example5
+                     , Part1.Example6
                      , Part2.Example1
                      , Part2.Example2
                      , Part2.Example3
+                     , Part2.Example4
+                     , Part3.Message.Common
+                     , Part3.Message.Example1
+                     , Part3.Message.Example2
+                     , Part3.Message.Example3
+                     , Part3.Message.Example4
+                     , Part3.Message.Example5
+                     , Part3.Message.Example6
+                     , Part3.Message.Example7
+                     , Part3.Account.Common
+                     , Part3.Account.Example1
+                     , Part3.Account.Example2
+                     , Part3.Account.Example3
+                     , Part3.Account.Example4
+                     , Part3.Account.Example5
+                     , Part3.Account.Example6
+                     -- , Part4.Names.Example1
+                     -- , Part4.Notifications.Example1
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base >=4.8 && <4.9

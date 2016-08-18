@@ -17,13 +17,13 @@ networkDescription (InputSources o r) = do
   eRead <- fromAddHandler . addHandler $ r
 
   let
-    eMessage = filterE (/= "/" . take 1) eRead
-    eCommand = fmap (drop 1) . filterE (== "/" . take 1) eRead
+    eMessage = filterE ((/= "/") . take 1) eRead
+    eCommand = fmap (drop 1) . filterE ((== "/") . take 1) $ eRead
     eHelp    = () <$ filterE (== "help") eCommand
     eQuit    = () <$ filterE (== "quit") eCommand
 
     commands        = ["help", "quit"]
-    eUnknownCommand = () <$ filterE (`notElem` commands) eCommand
+    eUnknownCommand = filterE (`notElem` commands) eCommand
 
   reactimate $ fmap putStrLn . leftmost $ [
       "Hi (type /help for instructions)" <$ eOpen
@@ -35,6 +35,7 @@ networkDescription (InputSources o r) = do
   reactimate $ exitSuccess <$ eQuit
 ```
 ## Separating out the IO
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example1.hs)
 
 We are currently doing IO whenever we like in our event network.
 
@@ -89,13 +90,13 @@ Our network description is now free from IO:
 pureNetworkDescription :: MonadMoment m => InputIO -> m OutputIO 
 pureNetworkDescription (InputIO eOpen eRead) =
   let
-    eMessage = filterE (/= "/" . take 1) eRead
-    eCommand = fmap (drop 1) . filterE (== "/" . take 1) eRead
+    eMessage = filterE ((/= "/") . take 1) eRead
+    eCommand = fmap (drop 1) . filterE ((== "/") . take 1) $ eRead
     eHelp    = () <$ filterE (== "help") eCommand
     eQuit    = () <$ filterE (== "quit") eCommand
 
     commands        = ["help", "quit"]
-    eUnknownCommand = () <$ filterE (`notElem` commands) eCommand
+    eUnknownCommand = filterE (`notElem` commands) eCommand
 
     eWrite = leftmost [
         "Hi (type /help for instructions)" <$ eOpen
@@ -115,6 +116,7 @@ networkDescription =
 ```
 
 ## A little more separation
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example2.hs)
 
 We're currently not doing any IO in `pureNetworkDescription`, but its boundaries are defined entirely by events related to IO.
 
@@ -209,13 +211,14 @@ domainNetworkDescription (Inputs eOpen eMessage eHelp eQuit eUnknownCommand) =
 ```
 which can be transformed into what we had before by using the corresponding new functions:
 ```haskell
-pureNetworkDescription :: MonadMomemnt m => InputIO -> m OutputIO
-pureNetworkDescription = do 
+pureNetworkDescription :: MonadMoment m => InputIO -> m OutputIO
+pureNetworkDescription i = do 
   o <- domainNetworkDescription . fanOut $ i
   return $ fanIn o
 ```
 
 ## A lot more separation
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example3.hs)
 
 The middle section of `domainNetworkDescription` is still a bit of a mess.
 We can clean this up by componentizing the various pieces of functionality that are in play.
@@ -314,7 +317,7 @@ handleUnknown (UnknownInput eUnknown) =
 
 We can stitch all of these together like so:
 ```haskell
-domainNetworkDescription :: Inputs -> Moment Outputs
+domainNetworkDescription :: MonadMoment m => Inputs -> m Outputs
 domainNetworkDescription (Inputs eOpen eMessage eHelp eQuit eUnknown) = do
   OpenOutput eoWrite        <- handleOpen $ OpenInput eOpen
   MessageOutput emWrite     <- handleMessage $ MessageInput eMessage
@@ -326,6 +329,7 @@ domainNetworkDescription (Inputs eOpen eMessage eHelp eQuit eUnknown) = do
 and now we're free to tweak the internals of some of these without exposing everything to the body of `domainNetworkDescription.`
 
 ## Refactoring for testing
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example4.hs)
 
 There's a tantalizing function available in `reactive-banana`.
 ```haskell
@@ -381,7 +385,7 @@ mergeOutput (OutputIO eWrite eClose) =
 and we package it up neatly:
 ```haskell
 testNetwork :: (InputIO -> Moment OutputIO) -> [Maybe InputCmd] -> IO [Maybe [OutputCmd]]
-testNetwork =
+testNetwork fn =
   interpret $ \i -> do
     o <- fn . fanInput $ i
     return $ mergeOutput o
@@ -390,7 +394,7 @@ testNetwork =
 From that we can create a testing function:
 ```haskell
 testIOCmds :: [Maybe InputCmd] -> IO [Maybe [OutputCmd]]
-testIOCmds = testNetwork domainNetworkDescription
+testIOCmds = testNetwork pureNetworkDescription
 ```
 without having to modify our network description at all.
 

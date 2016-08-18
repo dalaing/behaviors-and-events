@@ -15,12 +15,6 @@ import System.Exit (exitSuccess)
 import Reactive.Banana
 import Reactive.Banana.Frameworks
 
-orElse :: Event a -> Event a -> Event a
-orElse = unionWith const
-
-leftmost :: [Event a] -> Event a
-leftmost = foldl orElse never
-
 data EventSource a = EventSource {
     addHandler :: AddHandler a
   , fire       :: a -> IO ()
@@ -42,10 +36,7 @@ networkDescription i = do
     eMessage = filterE (/= "/quit") eRead
     eQuit    = () <$ filterE (== "/quit") eRead
 
-  reactimate $ fmap putStrLn . leftmost $ [
-      eMessage
-    , "Bye" <$ eQuit
-    ]
+  reactimate $ putStrLn <$> eMessage
   reactimate $ exitSuccess <$ eQuit
 
 eventLoop :: EventSource String -> IO ()

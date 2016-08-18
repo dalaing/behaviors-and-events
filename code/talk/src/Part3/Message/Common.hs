@@ -5,8 +5,26 @@ Maintainer  : dave.laing.80@gmail.com
 Stability   : experimental
 Portability : non-portable
 -}
-module Part2.Example3 (
-    go_2_3
+module Part3.Message.Common (
+    mkGo
+  , mkTestFn
+  , Inputs(..)
+  , Outputs(..)
+  , OpenInput(..)
+  , OpenOutput(..)
+  , handleOpen
+  , LimitInput(..)
+  , LimitOutput(..)
+  , handleLimit
+  , HelpInput(..)
+  , HelpOutput(..)
+  , handleHelp
+  , QuitInput(..)
+  , QuitOutput(..)
+  , handleQuit
+  , UnknownInput(..)
+  , UnknownOutput(..)
+  , handleUnknown
   ) where
 
 import           Control.Monad              (forever)
@@ -69,12 +87,58 @@ mkNetwork fn input = do
   o <- liftMoment $ fn i
   handleOutput o
 
+data InputCmd =
+    Open
+  | Read String
+  deriving (Eq, Ord, Show)
+
+fanInput :: Event InputCmd -> InputIO
+fanInput eIn =
+  let
+    maybeOpen Open = Just ()
+    maybeOpen _    = Nothing
+    eOpen = filterJust $ maybeOpen <$> eIn
+
+    maybeRead (Read x) = Just x
+    maybeRead _ = Nothing
+    eRead = filterJust $ maybeRead <$> eIn
+  in
+    InputIO eOpen eRead
+
+data OutputCmd =
+    Write String
+  | Close
+  deriving (Eq, Ord, Show)
+
+mergeOutput :: OutputIO -> Event [OutputCmd]
+mergeOutput (OutputIO eWrite eClose) =
+  unionWith (++)
+    ((\x -> [Write x]) <$> eWrite)
+    ([Close] <$ eClose)
+
+testNetwork :: (InputIO -> Moment OutputIO) -> [Maybe InputCmd] -> IO [Maybe [OutputCmd]]
+testNetwork fn =
+  interpret $ \i -> do
+    o <- fn . fanInput $ i
+    return $ mergeOutput o
+
+mkTestFn :: (Inputs -> Moment Outputs) -> [Maybe InputCmd] -> IO [Maybe [OutputCmd]]
+mkTestFn n =
+  let
+    pureNetworkDescription i = do
+      o <- n . fanOut $ i
+      return $ fanIn o
+  in
+    testNetwork pureNetworkDescription
+
 data Inputs = Inputs {
-    ieOpen           :: Event ()
-  , ieMessage        :: Event String
-  , ieHelp           :: Event ()
-  , ieQuit           :: Event ()
-  , ieUnknownCommand :: Event String
+    ieOpen             :: Event ()
+  , ieMessage          :: Event String
+  , ieHistoryLimitUp   :: Event ()
+  , ieHistoryLimitDown :: Event ()
+  , ieHelp             :: Event ()
+  , ieQuit             :: Event ()
+  , ieUnknownCommand   :: Event String
   }
 
 fanOut :: InputIO -> Inputs
@@ -93,15 +157,17 @@ fanOut (InputIO eOpen eRead) =
     eCommand =
       fmap (drop 1) . filterE isCommand $ eReadNonEmpty
 
-    eHelp = () <$ filterE (== "help") eCommand
-    eQuit = () <$ filterE (== "quit") eCommand
+    eLimitUp   = () <$ filterE (== "limitup") eCommand
+    eLimitDown = () <$ filterE (== "limitdown") eCommand
+    eHelp      = () <$ filterE (== "help") eCommand
+    eQuit      = () <$ filterE (== "quit") eCommand
 
     commands =
-      ["help", "quit"]
+      ["limitup", "limitdown", "help", "quit"]
     eUnknownCommand =
       filterE (`notElem` commands) eCommand
   in
-    Inputs eOpen eMessage eHelp eQuit eUnknownCommand
+    Inputs eOpen eMessage eLimitUp eLimitDown eHelp eQuit eUnknownCommand
 
 data Outputs = Outputs {
     oeWrite :: [Event String]
@@ -117,7 +183,7 @@ fanIn (Outputs eWrites eCloses) =
   in
     OutputIO eCombinedWrites eCombinedCloses
 
-data OpenInput  = OpenInput  { oieOpen  :: Event () }
+data OpenInput  = OpenInput  { oieOpen :: Event () }
 data OpenOutput = OpenOutput { ooeWrite :: Event String }
 
 handleOpen :: MonadMoment m => OpenInput -> m OpenOutput
@@ -127,20 +193,37 @@ handleOpen (OpenInput eOpen) =
   in
     return $ OpenOutput eWrite
 
-data MessageInput  = MessageInput  { mieRead  :: Event String }
-data MessageOutput = MessageOutput { moeWrite :: Event String }
+data LimitInput = LimitInput {
+    lieLimitUp :: Event ()
+  , lieLimitDown :: Event ()
+  }
 
-handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
-handleMessage (MessageInput eMessage) =
-  return $ MessageOutput eMessage
+data LimitOutput = LimitOutput {
+    loeLimit :: Event Int
+  , lobLimit :: Behavior Int
+  }
 
-data HelpInput  = HelpInput  { hieHelp  :: Event () }
+handleLimit :: MonadMoment m => LimitInput -> m LimitOutput
+handleLimit (LimitInput eUp eDown) = do
+  (eLimit, bLimit) <- mapAccum 1 . fmap (\f x -> (f x, f x)) . unions $ [
+      (+ 1) <$ eUp
+    , (max 0 . subtract 1) <$ eDown
+    ]
+  return $ LimitOutput eLimit bLimit
+
+data HelpInput  = HelpInput  { hieHelp :: Event () }
 data HelpOutput = HelpOutput { hoeWrite :: Event String }
 
 handleHelp :: MonadMoment m => HelpInput -> m HelpOutput
 handleHelp (HelpInput eHelp) =
   let
-    eWrite = "/help displays this message\n/quit exits the program" <$ eHelp
+    helpStrings = [
+        "/limitup increases the history limit"
+      , "/limitdown decreases the history limit"
+      , "/help displays this message"
+      , "/quit exits the program"
+      ]
+    eWrite = unlines helpStrings <$ eHelp
   in
     return $ HelpOutput eWrite
 
@@ -161,7 +244,7 @@ handleQuit (QuitInput eQuit) =
     return $ QuitOutput eWrite eQuit
 
 data UnknownInput  = UnknownInput  { ucieCommand :: Event String }
-data UnknownOutput = UnknownOutput { ucoeWrite   :: Event String }
+data UnknownOutput = UnknownOutput { ucoeWrite :: Event String }
 
 handleUnknown :: MonadMoment m => UnknownInput -> m UnknownOutput
 handleUnknown (UnknownInput eUnknown) =
@@ -170,24 +253,6 @@ handleUnknown (UnknownInput eUnknown) =
   in
     return . UnknownOutput $ msg <$> eUnknown
 
-domainNetworkDescription :: MonadMoment m => Inputs -> m Outputs
-domainNetworkDescription (Inputs eOpen eMessage eHelp eQuit eUnknown) = do
-  OpenOutput eoWrite        <- handleOpen $ OpenInput eOpen
-  MessageOutput emWrite     <- handleMessage $ MessageInput eMessage
-  HelpOutput ehWrite        <- handleHelp $ HelpInput eHelp
-  QuitOutput eqWrite eqQuit <- handleQuit $ QuitInput eQuit
-  UnknownOutput euWrite     <- handleUnknown $ UnknownInput eUnknown
-  return $ Outputs [eoWrite, emWrite, ehWrite, eqWrite, euWrite] [eqQuit]
-
-pureNetworkDescription :: MonadMoment m => InputIO -> m OutputIO
-pureNetworkDescription i = do
-  o <- domainNetworkDescription . fanOut $ i
-  return $ fanIn o
-
-networkDescription :: InputSources -> MomentIO ()
-networkDescription =
-  mkNetwork pureNetworkDescription
-
 eventLoop :: InputSources -> IO ()
 eventLoop (InputSources o r) = do
   fire o ()
@@ -195,9 +260,13 @@ eventLoop (InputSources o r) = do
     x <- getLine
     fire r x
 
-go_2_3 :: IO ()
-go_2_3 = do
+mkGo :: (Inputs -> Moment Outputs) -> IO ()
+mkGo n = do
   input <- mkInputSources
+  let
+    networkDescription = mkNetwork $ \i -> do
+      o <- n . fanOut $ i
+      return $ fanIn o
   network <- compile $ networkDescription input
   actuate network
   eventLoop input

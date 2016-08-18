@@ -114,10 +114,8 @@ importantWork eCount =
     eFizzBuzz
 ```
 
-That's right.
-I totally went there.
-
-## Connecting the event network
+## Connecting the event network 
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example1.hs)
 
 Now that we've looking a little at the inside of the event network, it is time to take a look at how these things look from the outside.
 
@@ -212,6 +210,7 @@ So far it's not a very impressive event network, but it makes for a nice startin
 We can improve this program quite a bit.
 
 ### Adding the ability to quit
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example2.hs)
 
 Let us start by adding the ability to quit the program when the user types "/quit":
 ```haskell
@@ -232,6 +231,7 @@ networkDescription i = do
 So far, so good.
 
 ### Printing a message on exit
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example3.hs)
 
 Now let's say goodbye to the user before we go.
 
@@ -273,6 +273,7 @@ networkDescription i = do
 ```
 
 ### Printing a greeting
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example4.hs)
 
 We've said goodbye, so we should probably also say hello.
 
@@ -333,6 +334,7 @@ go = do
 ```
 
 ### Adding a help command
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example5.hs)
 
 Next we're going to add a help command:
 ```haskell
@@ -358,6 +360,7 @@ networkDescription (InputSources o r) = do
 This involves altering `eMessage` so that it stays out of the way of the other commands.
 
 ### Detecting the use of unknown commands
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example6.hs)
 
 To top it all off, we're going to detect the use of unknown commands.
 
@@ -368,13 +371,13 @@ networkDescription (InputSources o r) = do
   eRead <- fromAddHandler . addHandler $ r
 
   let
-    eMessage = filterE (/= "/" . take 1) eRead
-    eCommand = fmap (drop 1) . filterE (== "/" . take 1) eRead
+    eMessage = filterE ((/= "/") . take 1) eRead
+    eCommand = fmap (drop 1) . filterE ((== "/") . take 1) $ eRead
     eHelp    = () <$ filterE (== "help") eCommand
     eQuit    = () <$ filterE (== "quit") eCommand
 
     commands        = ["help", "quit"]
-    eUnknownCommand = () <$ filterE (`notElem` commands) eCommand
+    eUnknownCommand = filterE (`notElem` commands) eCommand
 
   reactimate $ fmap putStrLn . leftmost $ [
       "Hi (type /help for instructions)" <$ eOpen
@@ -385,6 +388,8 @@ networkDescription (InputSources o r) = do
     ]
   reactimate $ exitSuccess <$ eQuit
 ```
+
+We've also cleaned up a few bits and pieces along the way.
 
 ## Next up
 

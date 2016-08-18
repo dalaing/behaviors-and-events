@@ -5,8 +5,34 @@ Maintainer  : dave.laing.80@gmail.com
 Stability   : experimental
 Portability : non-portable
 -}
-module Part2.Example3 (
-    go_2_3
+module Part3.Account.Common (
+    mkGo
+  , mkTestFn
+  , Inputs(..)
+  , Outputs(..)
+  , OpenInput(..)
+  , OpenOutput(..)
+  , handleOpen
+  , MessageInput(..)
+  , MessageOutput(..)
+  , handleMessage
+  , AccountType(..)
+  , UpgradeInput(..)
+  , UpgradeOutput(..)
+  , handleUpgrade
+  , LimitEvents(..)
+  , LimitOutput(..)
+  , translateLimitEvents
+  , HelpInput(..)
+  , HelpOutput(..)
+  , handleHelp
+  , QuitInput(..)
+  , QuitOutput(..)
+  , handleQuit
+  , UnknownInput(..)
+  , UnknownOutput(..)
+  , handleUnknown
+  , leftmost
   ) where
 
 import           Control.Monad              (forever)
@@ -69,9 +95,54 @@ mkNetwork fn input = do
   o <- liftMoment $ fn i
   handleOutput o
 
+data InputCmd =
+    Open
+  | Read String
+  deriving (Eq, Ord, Show)
+
+fanInput :: Event InputCmd -> InputIO
+fanInput eIn =
+  let
+    maybeOpen Open = Just ()
+    maybeOpen _    = Nothing
+    eOpen = filterJust $ maybeOpen <$> eIn
+
+    maybeRead (Read x) = Just x
+    maybeRead _ = Nothing
+    eRead = filterJust $ maybeRead <$> eIn
+  in
+    InputIO eOpen eRead
+
+data OutputCmd =
+    Write String
+  | Close
+  deriving (Eq, Ord, Show)
+
+mergeOutput :: OutputIO -> Event [OutputCmd]
+mergeOutput (OutputIO eWrite eClose) =
+  unionWith (++)
+    ((\x -> [Write x]) <$> eWrite)
+    ([Close] <$ eClose)
+
+testNetwork :: (InputIO -> Moment OutputIO) -> [Maybe InputCmd] -> IO [Maybe [OutputCmd]]
+testNetwork fn =
+  interpret $ \i -> do
+    o <- fn . fanInput $ i
+    return $ mergeOutput o
+
+mkTestFn :: (Inputs -> Moment Outputs) -> [Maybe InputCmd] -> IO [Maybe [OutputCmd]]
+mkTestFn n =
+  let
+    pureNetworkDescription i = do
+      o <- n . fanOut $ i
+      return $ fanIn o
+  in
+    testNetwork pureNetworkDescription
+
 data Inputs = Inputs {
     ieOpen           :: Event ()
   , ieMessage        :: Event String
+  , ieUpgrade        :: Event ()
   , ieHelp           :: Event ()
   , ieQuit           :: Event ()
   , ieUnknownCommand :: Event String
@@ -93,15 +164,16 @@ fanOut (InputIO eOpen eRead) =
     eCommand =
       fmap (drop 1) . filterE isCommand $ eReadNonEmpty
 
-    eHelp = () <$ filterE (== "help") eCommand
-    eQuit = () <$ filterE (== "quit") eCommand
+    eUpgrade   = () <$ filterE (== "upgrade") eCommand
+    eHelp      = () <$ filterE (== "help") eCommand
+    eQuit      = () <$ filterE (== "quit") eCommand
 
     commands =
-      ["help", "quit"]
+      ["upgrade", "help", "quit"]
     eUnknownCommand =
       filterE (`notElem` commands) eCommand
   in
-    Inputs eOpen eMessage eHelp eQuit eUnknownCommand
+    Inputs eOpen eMessage eUpgrade eHelp eQuit eUnknownCommand
 
 data Outputs = Outputs {
     oeWrite :: [Event String]
@@ -117,7 +189,7 @@ fanIn (Outputs eWrites eCloses) =
   in
     OutputIO eCombinedWrites eCombinedCloses
 
-data OpenInput  = OpenInput  { oieOpen  :: Event () }
+data OpenInput  = OpenInput  { oieOpen :: Event () }
 data OpenOutput = OpenOutput { ooeWrite :: Event String }
 
 handleOpen :: MonadMoment m => OpenInput -> m OpenOutput
@@ -131,16 +203,61 @@ data MessageInput  = MessageInput  { mieRead  :: Event String }
 data MessageOutput = MessageOutput { moeWrite :: Event String }
 
 handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
-handleMessage (MessageInput eMessage) =
+handleMessage (MessageInput eMessage) = do
   return $ MessageOutput eMessage
 
-data HelpInput  = HelpInput  { hieHelp  :: Event () }
+data AccountType =
+    Plebian
+  | Premium
+  deriving (Eq, Ord, Show)
+
+data UpgradeInput  = UpgradeInput  { uieUpgrade :: Event () }
+data UpgradeOutput = UpgradeOutput { uobLimit :: Behavior AccountType }
+
+handleUpgrade :: MonadMoment m => UpgradeInput -> m UpgradeOutput
+handleUpgrade (UpgradeInput eUpgrade) = do
+  bAccount <- stepper Plebian (Premium <$ eUpgrade)
+  return $ UpgradeOutput bAccount
+
+data LimitEvents = LimitEvents {
+    lieSoftLimit :: Event ()
+  , lieHardLimit :: Event ()
+  }
+
+data LimitOutput = LimitOutput {
+    loeWrite :: Event String
+  , loeQuit  :: Event ()
+  }
+
+translateLimitEvents :: LimitEvents -> LimitOutput
+translateLimitEvents (LimitEvents eSoftLimit eHardLimit) =
+  let
+    eSoftLimitMessage =
+      "You are using a Plebian account.  Consider upgrading to a Premium account for unlimited messages." <$ eSoftLimit
+    eHardLimitMessage =
+      "You have reached your message limit for a Plebian account, please upgrade." <$ eHardLimit
+    eMessage =
+      leftmost [
+          eHardLimitMessage
+        , eSoftLimitMessage
+        ]
+    eQuit =
+      eHardLimit
+  in
+    LimitOutput eMessage eQuit
+
+data HelpInput  = HelpInput  { hieHelp :: Event () }
 data HelpOutput = HelpOutput { hoeWrite :: Event String }
 
 handleHelp :: MonadMoment m => HelpInput -> m HelpOutput
 handleHelp (HelpInput eHelp) =
   let
-    eWrite = "/help displays this message\n/quit exits the program" <$ eHelp
+    helpStrings = [
+        "/upgrade upgrade to a premium account"
+      , "/help displays this message"
+      , "/quit exits the program"
+      ]
+    eWrite = unlines helpStrings <$ eHelp
   in
     return $ HelpOutput eWrite
 
@@ -161,7 +278,7 @@ handleQuit (QuitInput eQuit) =
     return $ QuitOutput eWrite eQuit
 
 data UnknownInput  = UnknownInput  { ucieCommand :: Event String }
-data UnknownOutput = UnknownOutput { ucoeWrite   :: Event String }
+data UnknownOutput = UnknownOutput { ucoeWrite :: Event String }
 
 handleUnknown :: MonadMoment m => UnknownInput -> m UnknownOutput
 handleUnknown (UnknownInput eUnknown) =
@@ -170,24 +287,6 @@ handleUnknown (UnknownInput eUnknown) =
   in
     return . UnknownOutput $ msg <$> eUnknown
 
-domainNetworkDescription :: MonadMoment m => Inputs -> m Outputs
-domainNetworkDescription (Inputs eOpen eMessage eHelp eQuit eUnknown) = do
-  OpenOutput eoWrite        <- handleOpen $ OpenInput eOpen
-  MessageOutput emWrite     <- handleMessage $ MessageInput eMessage
-  HelpOutput ehWrite        <- handleHelp $ HelpInput eHelp
-  QuitOutput eqWrite eqQuit <- handleQuit $ QuitInput eQuit
-  UnknownOutput euWrite     <- handleUnknown $ UnknownInput eUnknown
-  return $ Outputs [eoWrite, emWrite, ehWrite, eqWrite, euWrite] [eqQuit]
-
-pureNetworkDescription :: MonadMoment m => InputIO -> m OutputIO
-pureNetworkDescription i = do
-  o <- domainNetworkDescription . fanOut $ i
-  return $ fanIn o
-
-networkDescription :: InputSources -> MomentIO ()
-networkDescription =
-  mkNetwork pureNetworkDescription
-
 eventLoop :: InputSources -> IO ()
 eventLoop (InputSources o r) = do
   fire o ()
@@ -195,9 +294,13 @@ eventLoop (InputSources o r) = do
     x <- getLine
     fire r x
 
-go_2_3 :: IO ()
-go_2_3 = do
+mkGo :: (Inputs -> Moment Outputs) -> IO ()
+mkGo n = do
   input <- mkInputSources
+  let
+    networkDescription = mkNetwork $ \i -> do
+      o <- n . fanOut $ i
+      return $ fanIn o
   network <- compile $ networkDescription input
   actuate network
   eventLoop input
