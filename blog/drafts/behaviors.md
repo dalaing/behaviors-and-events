@@ -3,8 +3,7 @@ title: Behaviors
 published: 2016-09-01 12:00:00+10:00
 ---
 
-[Previously](./events.html) we learned about how events work in FRP, and used what we learned to develop a simple command line program.
-[We then](./refactoring.html) went on to refactor it in various ways, to explore different avenues for making our work reusable and testable.
+[Previously](./echo.html) we developed a simple command line program and refactored it to make parts of it more reusable and testable.
 
 # Behaviors
 
@@ -32,7 +31,7 @@ stepper x eX = ...
 This will create a `Behavior` that starts with the value `x`, and then changes its to the value the event `eX` every time that event occurs.
 This change will not be observable until the next logical clock tick _after_ the event `eX`.
 
-We always sample the values of behaviors using events, which let us know which logical clock tick to use to sample the behaviour.
+We always sample the values of behaviors using events, which give us the logical clock tick to use to sample the behaviour.
 
 This is commonly done with some infix operators:
 ```haskell

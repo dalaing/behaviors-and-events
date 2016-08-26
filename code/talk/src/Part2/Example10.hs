@@ -8,7 +8,12 @@ Portability : non-portable
 {-# LANGUAGE TypeFamilies #-}
 module Part2.Example10 (
     go_2_10
-  , testIOCmds
+  , InputIOCmd(..)
+  , OutputIOCmd(..)
+  , test_2_10_io
+  , InputsCmd(..)
+  , OutputsCmd(..)
+  , test_2_10_pure
   ) where
 
 import           Reactive.Banana
@@ -117,7 +122,7 @@ handleUnknown (UnknownInput eUnknown) =
   in
     return . UnknownOutput $ msg <$> eUnknown
 
-domainNetworkDescription :: MonadMoment m => Inputs -> m Outputs
+domainNetworkDescription :: Inputs -> Moment Outputs
 domainNetworkDescription (Inputs eOpen eMessage eHelp eQuit eUnknown) = do
   OpenOutput eoWrite        <- handleOpen $ OpenInput eOpen
   MessageOutput emWrite     <- handleMessage $ MessageInput eMessage
@@ -150,19 +155,14 @@ class Fannable i where
 
 class Mergable o where
   type Merged o
-  -- probably going to need a smarter merge in the outputs
-  -- some of the outputs will fire at the same time as the inputs,
-  -- so we can't just do a run collecting behaviour outputs for the input events as well
-  -- as handling that with the output events
-  -- if there are any outputs with an event part in the output list, filter out the ones without an event part
-  mergeOutput :: Testable m => Event () -> o -> m (Event [Merged o])
+  mergeOutput :: Event () -> o -> Event [Merged o]
 
 testNetwork :: (Testable m, Fannable i, Mergable o) => (i -> m o) -> [Maybe (ToFan i)] -> IO [Maybe [Merged o]]
 testNetwork fn =
   interpretEvents $ \i -> do
     fi <- fanInput i
     o <- fn fi
-    mergeOutput (() <$ i) o
+    return $ mergeOutput (() <$ i) o
 
 data InputIOCmd =
     Open
@@ -191,12 +191,12 @@ instance Fannable InputIO where
 instance Mergable OutputIO where
   type Merged OutputIO = OutputIOCmd
   mergeOutput _ (OutputIO eWrite eClose) =
-    return $ unionWith (++)
+    unionWith (++)
       ((\x -> [Write x]) <$> eWrite)
       ([Close] <$ eClose)
 
-testIOCmds :: [Maybe InputIOCmd] -> IO [Maybe [OutputIOCmd]]
-testIOCmds = testNetwork pureNetworkDescription
+test_2_10_io :: [Maybe InputIOCmd] -> IO [Maybe [OutputIOCmd]]
+test_2_10_io = testNetwork pureNetworkDescription
 
 data InputsCmd =
     ICOpen
@@ -240,7 +240,9 @@ instance Fannable Inputs where
 instance Mergable Outputs where
   type Merged Outputs = OutputsCmd
   mergeOutput _ (Outputs eWrite eClose) =
-    return $ unionWith (++)
-      ((\x -> [OCWrite x]) <$> eWrite)
-      ([OCClose] <$ eClose)
+    foldr (unionWith (++)) never $
+      fmap (fmap (\x -> [OCWrite x])) eWrite ++
+      fmap (fmap (\_ -> [OCClose])) eClose
 
+test_2_10_pure :: [Maybe InputsCmd] -> IO [Maybe [OutputsCmd]]
+test_2_10_pure = testNetwork domainNetworkDescription

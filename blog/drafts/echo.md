@@ -593,53 +593,55 @@ If we're going to make use of it in with this program though, we're going to nee
 We're up for the challenge.
 The first thing to do will be to make data types for our inputs and outputs:
 ```haskell
-data InputCmd =
-    Open
-  | Read String
+data InputIOCmd =
+    IOOpen
+  | IORead String
   deriving (Eq, Ord, Show)
 
-data OutputCmd =
-    Write String
-  | Close
+data OutputIOCmd =
+    IOWrite String
+  | IOClose
   deriving (Eq, Ord, Show)
 ```
 
-We are trying to test a network of type `InputIO -> Moment Output IO` using `Event InputCmd` as inputs and `Event [OutputCmd]` as outputs.
-The list of `OutputCmd`s is needed to be able to check if certain outputs are happening simultaneously.
+We are trying to test a network of type `InputIO -> Moment OutputIO` using `Event InputIOCmd` as inputs and `Event [OutputIOCmd]` as outputs.
+The list of `OutputIOCmd`s is needed to be able to check if certain outputs are happening simultaneously.
 
-We'll write a function to get from `Event InputCmd` to `InputIO`:
+We'll write a function to get from `Event InputIOCmd` to `InputIO`:
 ```haskell
-fanInput :: Event InputCmd -> InputIO
+fanInput :: Event InputIOCmd -> InputIO
 fanInput eIn =
   let
-    maybeOpen Open = Just ()
+    maybeOpen IOOpen = Just ()
     maybeOpen _    = Nothing
     eOpen = filterJust $ maybeOpen <$> eIn
 
-    maybeRead (Read x) = Just x
+    maybeRead (IORead x) = Just x
     maybeRead _ = Nothing
     eRead = filterJust $ maybeRead <$> eIn
   in
     InputIO eOpen eRead
 ```
 
-
+This uses `filterJust`:
 ```haskell
 filterJust :: Event (Maybe a) -> Event a 
 ```
+which passes through the `Just` values and filters out the `Nothing` values.
 
-We'll also write a function to get from `OutputIO` to `Event [OutputCmd]`
+
+We'll also write a function to get from `OutputIO` to `Event [OutputIOCmd]`
 ```haskell
-mergeOutput :: OutputIO -> Event [OutputCmd]
+mergeOutput :: OutputIO -> Event [OutputIOCmd]
 mergeOutput (OutputIO eWrite eClose) =
   unionWith (++)
-    ((\x -> [Write x]) <$> eWrite)
-    ([Close] <$ eClose)
+    ((\x -> [IOWrite x]) <$> eWrite)
+    ([IOClose] <$ eClose)
 ```
 
 We can package this up as:
 ```haskell
-testNetwork :: Testable m => (InputIO -> m OutputIO) -> [Maybe InputCmd] -> IO [Maybe [OutputCmd]]
+testNetwork :: Testable m => (InputIO -> m OutputIO) -> [Maybe InputIOCmd] -> IO [Maybe [OutputIOCmd]]
 testNetwork fn =
   interpretEvents $ \i -> do
     o <- fn . fanInput $ i
@@ -654,24 +656,57 @@ class MonadMoment m => Testable m where
 With some formatting liberties in the output, it behaves admirably when we take it for a spin:
 ```haskell
 > output <- testNetwork pureNetworkDescription [
-    Just (Read "one")
+    Just (IORead "one")
   , Nothing
-  , Just (Read "two")
-  , Just (Read "/quit")
+  , Just (IORead "two")
+  , Just (IORead "/quit")
   ]
 > output
-[ Just [Write "one"]
+[ Just [IOWrite "one"]
 , Nothing
-, Just [Write "two"]
-, Just [Write "Bye", Close]
+, Just [IOWrite "two"]
+, Just [IOWrite "Bye", Close]
 ]
 ```
 
 This looks pretty handy for use with `QuickCheck` or `HUnit`.
 
-TODO version with Inputs and Outputs
+We can also do this with the domain specific events.
 
-We can also do this for any of the components we've come across so far - mostly because their inputs and outputs have been made up of events, so the fanning and merging functions are usually doable.
+The code is pretty similar to what we have above, and you can check it out in the linked sample code.
+
+```haskell
+class Fannable i where
+  type ToFan i
+  fanInput :: Testable m => Event (ToFan i) -> m i
+
+class Mergable o where
+  type Merged o
+  mergeOutput :: o -> (Event [Merged o])
+
+testNetwork :: (Testable m, Fannable i, Mergable o) => (i -> m o) -> [Maybe (ToFan i)] -> IO [Maybe [Merged o]]
+testNetwork fn =
+  interpretEvents $ \i -> do
+    fi <- fanInput i
+    o <- fn fi
+    return $ mergeOutput o
+```
+
+With that, we can do:
+```haskell
+> output <- testNetwork domainNetworkDescription [
+    Just Open
+  , Just (Message "testing...")
+  , Just Quit
+  ]
+> output
+[ Just [Write "Hi (type /help for instructions)"]
+, Just [Write "testing..."]
+, Just [Write "Bye",OCClose]
+]
+```
+
+We can also do this for the various components we've come across so far - mostly because their inputs and outputs have been made up of events, so the fanning and merging functions are usually doable.
 We'll have to get a little trickier later on though.
 
 ## Next up

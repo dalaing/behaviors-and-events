@@ -30,15 +30,23 @@ library
                      , Part2.Example8
                      , Part2.Example9
                      , Part2.Example10
-                     -- , Part3.Example4
-                     -- , Part4.Message.Common
-                     -- , Part4.Message.Example1
-                     -- , Part4.Message.Example2
-                     -- , Part4.Message.Example3
-                     -- , Part4.Message.Example4
-                     -- , Part4.Message.Example5
-                     -- , Part4.Message.Example6
-                     -- , Part4.Message.Example7
+                     , Part3.Common
+                     , Part3.Common.Util
+                     , Part3.Common.Testing
+                     , Part3.Common.IO
+                     , Part3.Common.Domain
+                     , Part3.Common.Components.Open
+                     , Part3.Common.Components.Help
+                     , Part3.Common.Components.Limit
+                     , Part3.Common.Components.Quit
+                     , Part3.Common.Components.Unknown
+                     , Part3.Example1
+                     , Part3.Example2
+                     , Part3.Example3
+                     , Part3.Example4
+                     , Part3.Example5
+                     , Part3.Example6
+                     , Part3.Example7
                      -- , Part4.Account.Common
                      -- , Part4.Account.Example1
                      -- , Part4.Account.Example2
