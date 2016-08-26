@@ -9,7 +9,8 @@ module Part1.Example1 (
     go_1_1
   ) where
 
-import Control.Monad (forever)
+import Control.Concurrent (threadDelay)
+import Data.Foldable (traverse_)
 
 import Reactive.Banana
 import Reactive.Banana.Frameworks
@@ -23,28 +24,63 @@ mkEventSource :: IO (EventSource a)
 mkEventSource =
   uncurry EventSource <$> newAddHandler
 
-setupInput :: IO (EventSource String)
-setupInput =
-  mkEventSource
+multiple :: Int -> Event Int -> Event Int
+multiple m =
+  filterE (\x -> x `mod` m == 0)
 
-networkDescription :: EventSource String -> MomentIO ()
-networkDescription i = do
-  eRead <- fromAddHandler . addHandler $ i
+importantWork :: Event Int -> Event String
+importantWork eCount =
+  let
+    eFizz =
+      "Fizz" <$ multiple 3 eCount
+    eBuzz =
+      "Buzz" <$ multiple 5 eCount
+    eFizzBuzz =
+      unionWith (\_ _ -> "FizzBuzz")
+      eFizz
+      eBuzz
+  in
+    eFizzBuzz
+
+networkDescription :: EventSource Int -> MomentIO ()
+networkDescription c = do
+  eCount <- fromAddHandler . addHandler $ c
 
   let
-    eWrite = eRead
+    eWrite = importantWork eCount
 
+  reactimate $ (\x -> putStrLn $ "count: " ++ show x) <$> eCount
   reactimate $ putStrLn <$> eWrite
 
-eventLoop :: EventSource String -> IO ()
-eventLoop i =
-  forever $ do
-    x <- getLine
-    fire i x
+networkDescription2 :: EventSource Int -> MomentIO ()
+networkDescription2 c = do
+  eCount <- fromAddHandler . addHandler $ c
+
+  let
+    eFizz =
+      "Fizz" <$ multiple 3 eCount
+    eBuzz =
+      "Buzz" <$ multiple 5 eCount
+    eWrite =
+      unionWith (\_ _ -> "FizzBuzz")
+      eFizz
+      eBuzz
+
+  reactimate $ (\x -> putStrLn $ "count: " ++ show x) <$> eCount
+  reactimate $ putStrLn <$> eWrite
+
+eventStep :: EventSource Int -> Int -> IO ()
+eventStep e i = do
+  fire e i
+  threadDelay 1000000
+
+eventLoop :: EventSource Int -> IO ()
+eventLoop e =
+  traverse_ (eventStep e) [0..]
 
 go_1_1 :: IO ()
 go_1_1 = do
-  input <- setupInput
+  input <- mkEventSource
   network <- compile $ networkDescription input
   actuate network
   eventLoop input

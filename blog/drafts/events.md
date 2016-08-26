@@ -52,7 +52,7 @@ evener eNumber =
 ```
 and `eEven` will be active at the logical points in time when `eNumber` is both active and has an even value.
 
-If you're dealing with a function in `reactive-banana` that has a _pure_ `Event` as an output, then the output `Event` will only ever be active at the same logical points of time as the input `Event`s.
+If you're dealing with a function in `reactive-banana` that has a _pure_ `Event` as an output then - with one exception that we'll cover later - the output `Event` will only ever be active at the same logical points of time as the input `Event`s.
 The output `Event` maybe be active less often - as was the case with `filterE` - but it will always be active at the same time as one or more of the input events.
 
 This becomes relevant when we start combining `Event`s.
@@ -117,80 +117,103 @@ importantWork eCount =
 ## Connecting the event network 
 ##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example1.hs)
 
-Now that we've looking a little at the inside of the event network, it is time to take a look at how these things look from the outside.
+That's all well and good, but there are plenty of snippets of FRP code like this floating around on the internet.
 
-We're going to be doing this by breaking ground on our first FRP application, which will be a command line application that echoes input.
+The first thing that gave my understanding a bit of a bump was hooking up a snippet like the above into an actual program.
 
-It'll get more impressive soon, I promise.
+We can divide up our program into the pieces that are building up our event network and the pieces that are interacting with our event network from the outside.
 
-When building an FRP app there are usually two pieces - or at least two kinds of pieces - that are involved.
-There is the event network, which is where the FRP happens, and the event loop, which feeds events into the network from the outside.
-
-There are several functions we can use to bridge that gap, but the one we'll be most interested in is:
+One of the functions that bridges the divide is `newAddHandler`:
 ```haskell
 newAddHandler :: IO (AddHandler a, a -> IO ()) 
 ```
 
-We can unpack that into a data type:
+We can package it's output up into a data structure:
 ```haskell
 data EventSource a = EventSource {
     addHandler :: AddHandler a
   , fire       :: a -> IO ()
   }
-
+```
+and create a helper function to create those data structures: 
+```haskell
 mkEventSource :: IO (EventSource a)
 mkEventSource =
   uncurry EventSource <$> newAddHandler
 ```
-where `addHandler` is used to subscribe to event updates from inside the event network, and `fire` is used to initiate events from the event loop.
 
-For the event loop of our command line, input echoing application, we just need to repeatedly read lines and fire the event:
-```haskell
-eventLoop :: EventSource String -> IO ()
-eventLoop i =
-  forever $ do
-    x <- getLine
-    fire i x
-```
+The `addHandler` field is used to register for event notifications from inside the event network, and the `fire` field is used to trigger the firing of those same events from outside the event network.
 
-Every event that we fire from the outside occurs at a distinct moment in logical time.
-In the documentation for `sodium` these are referred to as transactions - which can be a helpful way of thinking of them - and the transactions have their own context.
+Every event that we fire in this way occurs at a distinct moment in logical time.
+In fact, these are the only points in logical time that we have.
+The documentation for `sodium` refers to these as transactions - which can be a helpful way of thinking of them - and the transactions have their own context.
 
 In `reactive-banana` this context is provided by the `Moment` and `MomentIO` monads.
-If you see these in the signature of a function, it means that you're dealing with something that is outside of the current moment in logical time.
+That context is used to build up and alter the event network.
+If you see these in the signature of a function, it usually means that you're dealing with something that is going to have an effect outside of the current moment in logical time.
 
-For the event network, we use two functions from `reactive-banana` that operate in the `MomentIO` monad.
-
-We register our event sources using:
+The `fromAddHandler` function adds inputs into the event network by registering and event handler:
 ```haskell
 fromAddHandler :: AddHandler a -> MomentIO (Event a) 
 ```
-and we cause `IO` to happen in response to events using:
+
+The `reactimate` function adds outputs in `IO` into the event network, that occur at the same points of time as the events containing the `IO` action:
 ```haskell
 reactimate :: Event (IO ()) -> MomentIO () 
 ```
 
-The use of `MomentIO` in here makes some kind of sense.
-We will get the events after we register for them, and the `IO` output will occur after the event that triggers it.
-I found that my intuition for the `Moment` monads really took a step up once I started using them inside of the event networks.
-We'll get to that soon.
-
-With these two functions in our toolbox, we can describe our first event network:
+Assuming we have an event source which fires with an incrementing `Int`, we can use these to finish building our event network:
 ```haskell
-networkDescription :: EventSource String -> MomentIO ()
-networkDescription i = do
-  -- register for events when we have read a line
-  eRead <- fromAddHandler . addHandler $ i
+networkDescription :: EventSource Int -> MomentIO ()
+networkDescription c = do
+  eCount <- fromAddHandler . addHandler $ c
 
   let
-    -- we want to write whatever we have read
-    eWrite = eRead
+    eWrite = importantWork eCount
 
-  -- write the line 
+  reactimate $ (\x -> putStrLn $ "count: " ++ show x) <$> eCount
   reactimate $ putStrLn <$> eWrite
 ```
 
-Finally we need to glue everything together:
+It is worth noting that it is probably more common to see snippets where things like `importantWork` are inlined into the network:
+```haskell
+networkDescription :: EventSource Int -> MomentIO ()
+networkDescription c = do
+  eCount <- fromAddHandler . addHandler $ c
+
+  let
+    eFizz =
+      "Fizz" <$ multiple 3 eCount
+    eBuzz =
+      "Buzz" <$ multiple 5 eCount
+    eWrite =
+      unionWith (\_ _ -> "FizzBuzz")
+      eFizz
+      eBuzz
+
+  reactimate $ (\x -> putStrLn $ "count: " ++ show x) <$> eCount
+  reactimate $ putStrLn <$> eWrite
+```
+but it really comes down to a matter of taste.
+
+We still need to fire these events from the outside.
+
+To fire the event with a particular `Int` value and then wait a second, we can write:
+```haskell
+eventStep :: EventSource Int -> Int -> IO ()
+eventStep e i = do
+  fire e i
+  threadDelay 1000000
+```
+
+Then we just need to keep doing that with increasing values for the `Int`:
+```haskell
+eventLoop :: EventSource Int -> IO ()
+eventLoop e =
+  traverse_ (eventStep e) [0..]
+```
+
+Now we stitch it all together:
 ```haskell
 go :: IO ()
 go = do
@@ -205,198 +228,203 @@ Most of our programs are going to do pretty similar things with respect to gluin
 
 So far it's not a very impressive event network, but it makes for a nice starting point.
 
-## Improvements to the echo program
-
-We can improve this program quite a bit.
-
-### Adding the ability to quit
+## Counting with events
 ##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example2.hs)
 
-Let us start by adding the ability to quit the program when the user types "/quit":
+Aside from being a toy problem, the solution is a little underwhelming, since we're doing the counting outside of our event network.
+
+We'd really like our event loop to be doing just the `IO` that we need and letting the event network handle the rest.
+
+The event loop would then look like this:
 ```haskell
-import System.Exit (exitSuccess) 
-
-networkDescription :: EventSource String -> MomentIO ()
-networkDescription i = do
-  eRead <- fromAddHandler . addHandler $ i
-
-  let
-    eMessage = filterE (/= "/quit") eRead
-    eQuit    = () <$ filterE (== "/quit") eRead
-
-  reactimate $ putStrLn <$> eMessage
-  reactimate $ exitSuccess <$ eQuit
+eventLoop :: EventSource () -> IO ()
+eventLoop e =
+  forever $ do
+    threadDelay 1000000
+    fire e ()
 ```
 
-So far, so good.
+What we need from there is a way to start with a series of firings of clock ticks of type `Event ()` and end up with an `Event Int` that has counted the clock ticks we have seen so far.
 
-### Printing a message on exit
+That is going to require some memory inside our event network.
+Since that means we'll have informaton sticking around for longer than the current transaction, it is going to be inside one of the `Moment` or `MomentIO `monads.
+
+If we're not doing `IO` and we want something to be usable from within either of those monads, the `MonadMoment` typeclass has us covered:
+```haskell
+class Monad m => MonadMoment m where
+  liftMoment :: Moment a -> m a
+```
+and so you'll see that used for a lot of the combinators in `reactive-banana`.
+
+The first of these that we'll look at is `accumE`:
+```haskell
+accumE :: MonadMoment m => a -> Event (a -> a) -> m (Event a) 
+accumeE x eF = ...
+```
+
+When the input `eF` fires for the first time with the value `f`, the output will fire with `f x` at the same time.
+It it fires a second time with the value `g`, the output will fire with `g (f x)` at the same time.
+
+The output event is the composition of the functions contained in all of the preceding input events, applied to the initial value.
+Under the hood, the latest value is being held on to, so that we only have to apply one function for every event firing.
+
+With this in our (currently quite modest) arsenal, we can build a component that counts clock ticks:
+```haskell
+counter :: MonadMoment m => Event () -> m (Event Int)
+counter eTick = accumE 0 ((+ 1) <$ eTick)
+```
+
+The outputs of this will start at 1, because we don't get any output events until there are input events, and the first input event will cause `(+ 1)` to be applied `0`.
+
+This is all we need to build an event network that takes clock tick as inputs:
+```haskell
+networkDescription :: EventSource () -> MomentIO ()
+networkDescription t = do
+  eTick <- fromAddHandler . addHandler $ t
+
+  eCount <- counter eTick
+  let eWrite = importantWork eCount
+
+  reactimate $ (\x -> putStrLn $ "count: " ++ show x) <$> eCount
+  reactimate $ putStrLn <$> eWrite
+```
+or, in fully inlined form:
+```haskell
+networkDescription :: EventSource () -> MomentIO ()
+networkDescription t = do
+  eTick <- fromAddHandler . addHandler $ t
+
+  eCount <- accumE 0 ((+ 1) <$ eTick)
+
+  let
+    eFizz =
+      "Fizz" <$ multiple 3 eCount
+    eBuzz =
+      "Buzz" <$ multiple 5 eCount
+    eWrite =
+      unionWith (\_ _ -> "FizzBuzz")
+      eFizz
+      eBuzz
+
+  reactimate $ (\x -> putStrLn $ "count: " ++ show x) <$> eCount
+  reactimate $ putStrLn <$> eWrite
+```
+
+We could also pull out and combine the parts that don't do any IO, since that seems like a decent separating plane that we could use:
+```haskell
+combined :: MonadMoment m => Event () -> m (Event String)
+combined eTick = do
+  eCount <- counter eTick
+  return $ importantWork eCount
+```
+
+That has another choice nested inside of it.
+
+Instead of using the `MonadMoment`, we could be explicit about the fact that `counter` does no `IO`:
+```haskell
+counter :: Event () -> Moment (Event Int)
+```
+
+If we went down that path for `counter` but left `combined` using `MonadMoment`, we'd need to use `liftMoment` to join them up.
+
+The change would be from:
+```haskell
+  eCount <- counter eTick
+```
+to:
+```haskell
+  eCount <- liftMoment $ counter eTick
+```
+
+## Testing event networks
 ##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example3.hs)
 
-Now let's say goodbye to the user before we go.
-
-We're going to introduce some helper functions here, to help deal with multiple non-simultaneous events.
-We know they're non-simultaneous because they're all going to be derived from `eRead`.
-
-First we have
+There's a tantalizing function available in `reactive-banana`.
 ```haskell
-orElse :: Event a -> Event a -> Event a
-orElse = unionWith const
+interpret :: (Event a -> Moment (Event b)) -> [Maybe a] -> IO [Maybe b] 
 ```
-which picks the first of two events if they are activated simultaneously.
+According to the haddocks, the IO is an implementation detail but you can otherwise treat it as a pure function.
 
-We can extend that to a list of events with
+The first argument is a fragment of an event network to interpret.
+
+The second argument is a list of values for the `Event a`s to feed into the network.
+Each element in the list represents the value of the input event at successive logical moments in time.
+If the value is `Nothing`, then the event doesn't fire at the logical moment in time.
+
+The output is acting much the same as the second argument.
+
+Also in the haddocks for `interpret`: "Useful for testing."
+That was like a red rag to a bull for me.
+
+Before we get into that, there is also a version of `interpret` that works with `MonadIO`, namely `interpretFrameworks`.
+
+If we want to generalise our testing facilities, we can capture the common parts in another typeclass:
 ```haskell
-leftmost :: [Event a] -> Event a
-leftmost = foldl orElse never
+class MonadMoment m => Testable m where
+  interpretEvents :: (Event a -> m (Event b)) -> [Maybe a] -> IO [Maybe b]
 ```
-which I tend to use more than `orElse`, since I tend to refactor FRP programs and it's quicker to add or remove things from a list than it is to chain together a heap of events using `orElse`.
-
-We're using `never` in there, which is from `reactive-banana`, and is an event that never fires.
-It's handy for things like the `leftmost`.
-
-The change to print a message on exit is pretty small:
+and provide instances for `Moment` and `MomentIO`:
 ```haskell
-networkDescription :: EventSource String -> MomentIO ()
-networkDescription i = do
-  eRead <- fromAddHandler . addHandler $ i
+instance Testable Moment where
+  interpretEvents = interpret
 
-  let
-    eMessage = filterE (/= "/quit") eRead
-    eQuit    = () <$ filterE (== "/quit") eRead
-
-  reactimate $ fmap putStrLn . leftmost $ [
-      eMessage
-    , "Bye" <$ eQuit
-    ]
-  reactimate $ exitSuccess <$ eQuit
+instance Testable MomentIO where
+  interpretEvents = interpretFrameworks
 ```
 
-### Printing a greeting
-##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example4.hs)
+I tend to favour completely separating out my `IO`, so I'm happy enough to use `interpret` for most things.
+With that said `Testable` can be handy if you're writing something at your library boundary in `MonadMoment` so that other people can use it wherever they like. 
 
-We've said goodbye, so we should probably also say hello.
-
-In order to do that, our event network is going to need to know when the program has started.
-
-We'll add a new `EventSource` for that, and we'll collect the `EventSource`s together into a data structure:
+Let us have a look at how it works on `counter` (with some formatting liberties):
 ```haskell
-data InputSources = InputSources {
-    isOpen :: EventSource ()
-  , isRead :: EventSource String
-  }
+> xs <- interpretEvents counter $ replicate 15 (Just ())
+[ Just 1
+, Just 2
+, Just 3
+, Just 4
+, Just 5
+, Just 6
+, Just 7
+, Just 8
+, Just 9
+, Just 10
+, Just 11
+, Just 12
+, Just 13
+, Just 14
+, Just 15
+]
+```
+and on `combined`:
+```haskell
+> xs <- interpretEvents combined $ replicate 15 (Just ())
+[ Nothing
+, Nothing
+, Just "Fizz"
+, Nothing
+, Just "Buzz"
+, Just "Fizz"
+, Nothing
+, Nothing
+, Just "Fizz"
+, Just "Buzz"
+, Nothing
+, Just "Fizz"
+, Nothing
+, Nothing
+, Just "FizzBuzz"
+]
 ```
 
-It's pretty easy to build one of these:
-```haskell
-mkInputSources :: IO InputSources
-mkInputSources =
-  InputSources <$> mkEventSource <*> mkEventSource
-```
-
-From the outside of the event network, we need to fire the open event from the event loop:
-```haskell
-eventLoop :: InputSources -> IO ()
-eventLoop (InputSources o r) = do
-  fire o ()
-  forever $ do
-    x <- getLine
-    fire r x
-```
-
-From the inside of the event network, we need to register for open events and use those events to print a greeting:
-```haskell
-networkDescription :: InputSources -> MomentIO ()
-networkDescription (InputSources o r) = do
-  eOpen <- fromAddHandler . addHandler $ o
-  eRead <- fromAddHandler . addHandler $ r
-
-  let
-    eMessage = filterE (/= "/quit") eRead
-    eQuit    = () <$ filterE (== "/quit") eRead
-
-  reactimate $ fmap putStrLn . leftmost $ [
-      "Hi" <$ eOpen
-    , eMessage
-    , "Bye" <$ eQuit
-    ]
-  reactimate $ exitSuccess <$ eQuit
-```
-
-Then we just need to hook everything up:
-```haskell
-go :: IO ()
-go = do
-  input <- mkInputSources
-  network <- compile $ networkDescription input
-  actuate network
-  eventLoop input
-```
-
-### Adding a help command
-##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example5.hs)
-
-Next we're going to add a help command:
-```haskell
-networkDescription :: InputSources -> MomentIO ()
-networkDescription (InputSources o r) = do
-  eOpen <- fromAddHandler . addHandler $ o
-  eRead <- fromAddHandler . addHandler $ r
-
-  let
-    eMessage = filterE (/= "/" . take 1) eRead
-    eHelp    = () <$ filterE (== "/help") eRead
-    eQuit    = () <$ filterE (== "/quit") eRead
-
-  reactimate $ fmap putStrLn . leftmost $ [
-      "Hi (type /help for instructions)" <$ eOpen
-    , eMessage
-    , "/help displays this message\n/quit exits the program" <$ eHelp
-    , "Bye" <$ eQuit
-    ]
-  reactimate $ exitSuccess <$ eQuit
-```
-
-This involves altering `eMessage` so that it stays out of the way of the other commands.
-
-### Detecting the use of unknown commands
-##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part1/Example6.hs)
-
-To top it all off, we're going to detect the use of unknown commands.
-
-```haskell
-networkDescription :: InputSources -> MomentIO ()
-networkDescription (InputSources o r) = do
-  eOpen <- fromAddHandler . addHandler $ o
-  eRead <- fromAddHandler . addHandler $ r
-
-  let
-    eMessage = filterE ((/= "/") . take 1) eRead
-    eCommand = fmap (drop 1) . filterE ((== "/") . take 1) $ eRead
-    eHelp    = () <$ filterE (== "help") eCommand
-    eQuit    = () <$ filterE (== "quit") eCommand
-
-    commands        = ["help", "quit"]
-    eUnknownCommand = filterE (`notElem` commands) eCommand
-
-  reactimate $ fmap putStrLn . leftmost $ [
-      "Hi (type /help for instructions)" <$ eOpen
-    , eMessage
-    , "/help displays this message\n/quit exits the program" <$ eHelp
-    , "Bye" <$ eQuit
-    , (\x -> "Unknown command: " ++ x ++ " (type /help for instructions)") <$> eUnknownCommand
-    ]
-  reactimate $ exitSuccess <$ eQuit
-```
-
-We've also cleaned up a few bits and pieces along the way.
+We could also use this for some property based tests.
+Although that might be overkill for fizzbuzz.
 
 ## Next up
 
-We've got our first little FRP application together, so we should be feeling pretty good.
+We've now got a few pieces of the puzzle together.
 
-Soon we'll look at behaviors, which will let us write some more interesting programs.
+In the next post we're going to use them to make a slow start on our chat server.
+So slow, in fact, that "command line echo program" might be a better description.
+Still, you have to start somewhere.
 
-Before that, we're going to refactor what we have to make it more testable and to make the pieces more reusable.
-
-[Onwards!](./refactoring.html)
+[Onwards!](./echo.html)

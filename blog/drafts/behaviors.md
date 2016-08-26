@@ -101,7 +101,7 @@ accumB :: MonadMoment m => a -> Event (a -> a) -> m (Behavior a)
 accumB x eF = ...
 ```
 
-This behaves like a scan.
+This acts like a scan.
 The behavior starts with the value `x`, and every time the event `eF` occurs the function gets applied to the current value of the behavior.
 
 This works nicely with `unions`:
@@ -501,7 +501,7 @@ handleLimit (LimitInput eMessage bAccount bSoftLimit bHardLimit) = do
   return $ LimitEvents eSoftLimitReached eHardLimitReached
 ````
 
-### Using `filerApply`
+### Using `filterApply`
 
 If we need the event being filtered to take part in the decision along with some behaviours, we can use `filterApply`:
 ```haskell
@@ -586,8 +586,6 @@ handleLimit (LimitInput eUpgrade eMessage bSoftLimit bHardLimit) = do
     eHardLimitReached = () <$ whenE bHard eMessage
   return $ LimitEvents eSoftLimitReached eHardLimitReached
 ```
-
-My understanding is that `bLines` will end up being garbage collected after the upgrade events comes in, since from that point on it isn't being used any more.
 
 It's a small win now, but it'll become more significant as we work on more complex networks.
 
@@ -737,6 +735,63 @@ and we'd no longer need to use `eOpen` to get things started:
   switch plebianEvents (premiumEvents <$ eUpgrade)
 ```
 
+### Using `observeE` and `execute`
+
+```haskell
+handleLimit :: MonadMoment m => LimitInput -> m LimitEvents
+handleLimit li@(LimitInput eOpen eUpgrade _ _ _) = do
+  plebianEvents <- handleLimitPlebian li
+  premiumEvents <- handleLimitPremium li
+
+  switch emptyLimitEvents . leftmost $ [
+      plebianEvents <$ eOpen
+    , premiumEvents <$ eUpgrade
+    ]
+```
+
+```haskell
+handleLimit :: LimitInput -> Moment LimitEvents
+handleLimit li@(LimitInput eOpen eUpgrade _ _ _) = do
+  let
+    plebianEvents = handleLimitPlebian li
+    premiumEvents = handleLimitPremium li
+
+  switch emptyLimitEvents . observeE . leftmost $ [
+      plebianEvents <$ eOpen
+    , premiumEvents <$ eUpgrade
+    ]
+```
+
+TODO update refactoring and behaviors to reflect the new typeclasses and code structure
+TODO once interpret is introduced, start using testNetwork in doctests for the various networks
+TODO - although this requires that we have the ability to fan in and fan out our events
+TODO - also means we have to be able to deal with behaviors going in and out of these things
+
+TODO clean up earlier mentions of pruning the network and GC - maybe recast in terms of blocks you can dynamically chose to be involved with the network to various degrees
+TODO mention timing issues with an open event, how that comes from the missing argument in switchE
+TODO mention onceE in other systems - is onceE e = switchE e (never <$ e)?
+
+TODO mention the momentio version of interpret back where interpret first came up
+TODO possibly a typeclass to include things in the graph, abstract over observeE and execute
+TODO possibly something similar for testing
+
+TODO change Next up to link to a post on GC in reactive-banana
+
+```haskell
+handleLimit :: LimitInput -> MomentIO LimitEvents
+handleLimit li@(LimitInput eOpen eUpgrade _ _ _) = do
+  let
+    plebianEvents = handleLimitPlebian li
+    premiumEvents = handleLimitPremium li
+
+  switchedLimitEvents <- execute . leftmost $ [
+      plebianEvents <$ eOpen
+    , premiumEvents <$ eUpgrade
+    ]
+
+  switch emptyLimitEvents switchedLimitEvents
+```
+
 ### Other variations
 
 There are a few variations on this that might be interesting to play with.
@@ -751,5 +806,6 @@ Just don't tell the people from marketing.
 
 Now that we have some idea of what we can do with behaviors, we're going to start putting together some of the pieces we'll end up using in our chat server.
 
-<!-- [Onwards!](./chat-solo.html) -->
-Coming soon...
+We'll begin by putting together all of the pieces that we can inside of a command line application, in order to introduce one or two more tricks.
+
+[Onwards!](./chat/cmd.html)

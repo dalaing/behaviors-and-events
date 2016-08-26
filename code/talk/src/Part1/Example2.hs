@@ -7,10 +7,12 @@ Portability : non-portable
 -}
 module Part1.Example2 (
     go_1_2
+  , testCombined1
+  , testCombined2
   ) where
 
 import Control.Monad (forever)
-import System.Exit (exitSuccess)
+import Control.Concurrent (threadDelay)
 
 import Reactive.Banana
 import Reactive.Banana.Frameworks
@@ -24,30 +26,59 @@ mkEventSource :: IO (EventSource a)
 mkEventSource =
   uncurry EventSource <$> newAddHandler
 
-setupInput :: IO (EventSource String)
-setupInput =
-  mkEventSource
+multiple :: Int -> Event Int -> Event Int
+multiple m =
+  filterE (\x -> x `mod` m == 0)
 
-networkDescription :: EventSource String -> MomentIO ()
-networkDescription i = do
-  eRead <- fromAddHandler . addHandler $ i
+counter :: MonadMoment m => Event () -> m (Event Int)
+counter eTick = accumE 0 ((+ 1) <$ eTick)
 
+importantWork :: Event Int -> Event String
+importantWork eCount =
   let
-    eMessage = filterE (/= "/quit") eRead
-    eQuit    = () <$ filterE (== "/quit") eRead
+    eFizz =
+      "Fizz" <$ multiple 3 eCount
+    eBuzz =
+      "Buzz" <$ multiple 5 eCount
+    eFizzBuzz =
+      unionWith (\_ _ -> "FizzBuzz")
+      eFizz
+      eBuzz
+  in
+    eFizzBuzz
 
-  reactimate $ putStrLn <$> eMessage
-  reactimate $ exitSuccess <$ eQuit
+combined :: Event () -> Moment (Event String)
+combined eTick = do
+  eCount <- counter eTick
+  return $ importantWork eCount
 
-eventLoop :: EventSource String -> IO ()
-eventLoop i =
+testCombined1 :: IO [Maybe String]
+testCombined1 =
+  interpret combined $ replicate 16 (Just ())
+
+testCombined2 :: IO [Maybe String]
+testCombined2 =
+  interpret combined . concat $ replicate 16 [Nothing, Just (), Nothing]
+
+networkDescription :: EventSource () -> MomentIO ()
+networkDescription t = do
+  eTick <- fromAddHandler . addHandler $ t
+
+  eCount <- counter eTick
+  let eWrite = importantWork eCount
+
+  reactimate $ (\x -> putStrLn $ "count " ++ show x) <$> eCount
+  reactimate $ putStrLn <$> eWrite
+
+eventLoop :: EventSource () -> IO ()
+eventLoop e =
   forever $ do
-    x <- getLine
-    fire i x
+    threadDelay 1000000
+    fire e ()
 
 go_1_2 :: IO ()
 go_1_2 = do
-  input <- setupInput
+  input <- mkEventSource
   network <- compile $ networkDescription input
   actuate network
   eventLoop input

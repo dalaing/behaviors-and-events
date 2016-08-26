@@ -7,19 +7,15 @@ Portability : non-portable
 -}
 module Part1.Example3 (
     go_1_3
+  , test_1_3_counter
+  , test_1_3_combined
   ) where
 
 import Control.Monad (forever)
-import System.Exit (exitSuccess)
+import Control.Concurrent (threadDelay)
 
 import Reactive.Banana
 import Reactive.Banana.Frameworks
-
-orElse :: Event a -> Event a -> Event a
-orElse = unionWith const
-
-leftmost :: [Event a] -> Event a
-leftmost = foldl orElse never
 
 data EventSource a = EventSource {
     addHandler :: AddHandler a
@@ -30,33 +26,69 @@ mkEventSource :: IO (EventSource a)
 mkEventSource =
   uncurry EventSource <$> newAddHandler
 
-setupInput :: IO (EventSource String)
-setupInput =
-  mkEventSource
+multiple :: Int -> Event Int -> Event Int
+multiple m =
+  filterE (\x -> x `mod` m == 0)
 
-networkDescription :: EventSource String -> MomentIO ()
-networkDescription i = do
-  eRead <- fromAddHandler . addHandler $ i
+counter :: MonadMoment m => Event () -> m (Event Int)
+counter eTick = accumE 0 ((+ 1) <$ eTick)
 
+importantWork :: Event Int -> Event String
+importantWork eCount =
   let
-    eMessage = filterE (/= "/quit") eRead
-    eQuit    = () <$ filterE (== "/quit") eRead
+    eFizz =
+      "Fizz" <$ multiple 3 eCount
+    eBuzz =
+      "Buzz" <$ multiple 5 eCount
+    eFizzBuzz =
+      unionWith (\_ _ -> "FizzBuzz")
+      eFizz
+      eBuzz
+  in
+    eFizzBuzz
 
-  reactimate $ fmap putStrLn . leftmost $ [
-      eMessage
-    , "Bye" <$ eQuit
-    ]
-  reactimate $ exitSuccess <$ eQuit
+combined :: MonadMoment m => Event () -> m (Event String)
+combined eTick = do
+  eCount <- counter eTick
+  return $ importantWork eCount
 
-eventLoop :: EventSource String -> IO ()
-eventLoop i =
+class MonadMoment m => Testable m where
+  interpretEvents :: (Event a -> m (Event b)) -> [Maybe a] -> IO [Maybe b]
+
+instance Testable Moment where
+  interpretEvents = interpret
+
+instance Testable MomentIO where
+  interpretEvents = interpretFrameworks
+
+test_1_3_counter :: [Maybe ()] -> IO [Maybe Int]
+test_1_3_counter =
+  interpretEvents (counter :: Event () -> Moment (Event Int))
+
+test_1_3_combined :: [Maybe ()] -> IO [Maybe String]
+
+test_1_3_combined =
+  interpretEvents (combined :: Event () -> Moment (Event String))
+
+networkDescription :: EventSource () -> MomentIO ()
+networkDescription t = do
+  eTick <- fromAddHandler . addHandler $ t
+
+  eCount <- counter eTick
+  let eWrite = importantWork eCount
+
+  reactimate $ (\x -> putStrLn $ "count " ++ show x) <$> eCount
+  reactimate $ putStrLn <$> eWrite
+
+eventLoop :: EventSource () -> IO ()
+eventLoop e =
   forever $ do
-    x <- getLine
-    fire i x
+    threadDelay 1000000
+    fire e ()
 
 go_1_3 :: IO ()
 go_1_3 = do
-  input <- setupInput
+  input <- mkEventSource
   network <- compile $ networkDescription input
   actuate network
   eventLoop input

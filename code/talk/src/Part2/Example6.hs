@@ -5,8 +5,8 @@ Maintainer  : dave.laing.80@gmail.com
 Stability   : experimental
 Portability : non-portable
 -}
-module Part2.Example4 (
-    go_2_4
+module Part2.Example6 (
+    go_2_6
   ) where
 
 import Control.Monad (forever)
@@ -45,13 +45,20 @@ networkDescription (InputSources o r) = do
   eRead <- fromAddHandler . addHandler $ r
 
   let
-    eMessage = filterE (/= "/quit") eRead
-    eQuit    = () <$ filterE (== "/quit") eRead
+    eMessage = filterE ((/= "/") . take 1) eRead
+    eCommand = fmap (drop 1) . filterE ((== "/") . take 1) $ eRead
+    eHelp    = () <$ filterE (== "help") eCommand
+    eQuit    = () <$ filterE (== "quit") eCommand
+
+    commands        = ["help", "quit"]
+    eUnknownCommand = filterE (`notElem` commands) eCommand
 
   reactimate $ fmap putStrLn . leftmost $ [
-      "Hi" <$ eOpen
+      "Hi (type /help for instructions)" <$ eOpen
     , eMessage
+    , "/help displays this message\n/quit exits the program" <$ eHelp
     , "Bye" <$ eQuit
+    , (\x -> "Unknown command: " ++ x ++ " (type /help for instructions)") <$> eUnknownCommand
     ]
   reactimate $ exitSuccess <$ eQuit
 
@@ -62,8 +69,8 @@ eventLoop (InputSources o r) = do
     x <- getLine
     fire r x
 
-go_2_4 :: IO ()
-go_2_4 = do
+go_2_6 :: IO ()
+go_2_6 = do
   input <- mkInputSources
   network <- compile $ networkDescription input
   actuate network

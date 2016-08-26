@@ -7,9 +7,204 @@ published: 2016-09-01 12:00:00+10:00
   
 # An echo program
 
-Now we're going to take that program and progressively alter it, in order to separate out the IO that the program performs, to make some of the pieces of the program easier to reuse, and to make the program testable.
+We're going to start small, building a command line application that echos the input it receives, and we're going to iterate from there.
 
-As a reminder, we're starting with this:
+## Starting at the beginning
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example1.hs)
+
+Given what we're trying to achieve, our event loop is straightforward.
+
+We read a line, fire an event with the line we read, and repeat:
+```haskell
+eventLoop :: EventSource String -> IO ()
+eventLoop i =
+  forever $ do
+    x <- getLine
+    fire i x
+```
+
+The event network is probably the simplest one that we'll see:
+```haskell
+networkDescription :: EventSource String -> MomentIO ()
+networkDescription i = do
+  -- register for events when we have read a line
+  eRead <- fromAddHandler . addHandler $ i
+
+  let
+    -- we want to write whatever we have read
+    eWrite = eRead
+
+  -- write the line 
+  reactimate $ putStrLn <$> eWrite
+```
+
+We glue these two together in the usual manner:
+```haskell
+go :: IO ()
+go = do
+  input <- mkEventSource
+  network <- compile $ networkDescription input
+  actuate network
+  eventLoop input
+```
+
+We can improve this program quite a bit.
+
+## Adding the ability to quit
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example2.hs)
+
+Let us start by adding the ability to quit the program when the user types "/quit":
+```haskell
+import System.Exit (exitSuccess) 
+
+networkDescription :: EventSource String -> MomentIO ()
+networkDescription i = do
+  eRead <- fromAddHandler . addHandler $ i
+
+  let
+    eMessage = filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+
+  reactimate $ putStrLn <$> eMessage
+  reactimate $ exitSuccess <$ eQuit
+```
+
+So far, so good.
+
+## Printing a message on exit
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example3.hs)
+
+Now let's say goodbye to the user before we go.
+
+We're going to introduce some helper functions here, to help deal with multiple non-simultaneous events.
+We know they're non-simultaneous because they're all going to be derived from `eRead`.
+
+First we have
+```haskell
+orElse :: Event a -> Event a -> Event a
+orElse = unionWith const
+```
+which picks the first of two events if they are activated simultaneously.
+
+We can extend that to a list of events with
+```haskell
+leftmost :: [Event a] -> Event a
+leftmost = foldl orElse never
+```
+which I tend to use more than `orElse`, since I tend to refactor FRP programs and it's quicker to add or remove things from a list than it is to chain together a heap of events using `orElse`.
+
+We're using `never` in there, which is from `reactive-banana`, and is an event that never fires.
+It's handy for things like the `leftmost`.
+
+The change to print a message on exit is pretty small:
+```haskell
+networkDescription :: EventSource String -> MomentIO ()
+networkDescription i = do
+  eRead <- fromAddHandler . addHandler $ i
+
+  let
+    eMessage = filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+
+  reactimate $ fmap putStrLn . leftmost $ [
+      eMessage
+    , "Bye" <$ eQuit
+    ]
+  reactimate $ exitSuccess <$ eQuit
+```
+
+## Printing a greeting
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example4.hs)
+
+We've said goodbye, so we should probably also say hello.
+
+In order to do that, our event network is going to need to know when the program has started.
+
+We'll add a new `EventSource` for that, and we'll collect the `EventSource`s together into a data structure:
+```haskell
+data InputSources = InputSources {
+    isOpen :: EventSource ()
+  , isRead :: EventSource String
+  }
+```
+
+It's pretty easy to build one of these:
+```haskell
+mkInputSources :: IO InputSources
+mkInputSources =
+  InputSources <$> mkEventSource <*> mkEventSource
+```
+
+From the outside of the event network, we need to fire the open event from the event loop:
+```haskell
+eventLoop :: InputSources -> IO ()
+eventLoop (InputSources o r) = do
+  fire o ()
+  forever $ do
+    x <- getLine
+    fire r x
+```
+
+From the inside of the event network, we need to register for open events and use those events to print a greeting:
+```haskell
+networkDescription :: InputSources -> MomentIO ()
+networkDescription (InputSources o r) = do
+  eOpen <- fromAddHandler . addHandler $ o
+  eRead <- fromAddHandler . addHandler $ r
+
+  let
+    eMessage = filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+
+  reactimate $ fmap putStrLn . leftmost $ [
+      "Hi" <$ eOpen
+    , eMessage
+    , "Bye" <$ eQuit
+    ]
+  reactimate $ exitSuccess <$ eQuit
+```
+
+Then we just need to hook everything up:
+```haskell
+go :: IO ()
+go = do
+  input <- mkInputSources
+  network <- compile $ networkDescription input
+  actuate network
+  eventLoop input
+```
+
+## Adding a help command
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example5.hs)
+
+Next we're going to add a help command:
+```haskell
+networkDescription :: InputSources -> MomentIO ()
+networkDescription (InputSources o r) = do
+  eOpen <- fromAddHandler . addHandler $ o
+  eRead <- fromAddHandler . addHandler $ r
+
+  let
+    eMessage = filterE (/= "/" . take 1) eRead
+    eHelp    = () <$ filterE (== "/help") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+
+  reactimate $ fmap putStrLn . leftmost $ [
+      "Hi (type /help for instructions)" <$ eOpen
+    , eMessage
+    , "/help displays this message\n/quit exits the program" <$ eHelp
+    , "Bye" <$ eQuit
+    ]
+  reactimate $ exitSuccess <$ eQuit
+```
+
+This involves altering `eMessage` so that it stays out of the way of the other commands.
+
+## Detecting the use of unknown commands
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example6.hs)
+
+To top it off the functionality that we're going to start with, we're going to detect the use of unknown commands.
+
 ```haskell
 networkDescription :: InputSources -> MomentIO ()
 networkDescription (InputSources o r) = do
@@ -34,14 +229,20 @@ networkDescription (InputSources o r) = do
     ]
   reactimate $ exitSuccess <$ eQuit
 ```
+
+We've also cleaned up a few bits and pieces along the way.
+
 ## Separating out the IO
-##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example1.hs)
+##### [(From this point on, some of the common pieces of code have been pulled out and placed here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Common.hs)
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example7.hs)
 
 We are currently doing IO whenever we like in our event network.
 
 This can be _really_ handy in some circumstances, but it can be a bit of a burden if you have an event network that you want to test.
 
 In aid of that, we're going to separate out the bits of the event network that deal with IO and the bits of the event network that are pure.
+
+We did that a little bit in the first post, although it was done in a pretty ad-hoc manner.
 
 For the inputs, the only IO that we're doing is registering the event handlers.
 We can can take care of that with a data structure and a function to populate it:
@@ -84,7 +285,7 @@ mkNetwork fn input = do
 ```
 where the typeclass constraint has instances for both `Moment` and `MomentIO`.
 
-Throughout `reactive-banana` you'll see a typeclass:
+We've already seen:
 ```haskell
 class Monad m => MonadMoment m where
   liftMoment :: Moment a -> m a
@@ -98,7 +299,7 @@ It is for converting a common input to a parametised output.
 We have the opposite problem here.
 We want to convert a parametised input to a common output.
 
-So we'll write a class:
+So we'll write a typeclass:
 ```haskell
 class MonadMoment m => MonadMomentIO m where
   toMomentIO :: m a -> MomentIO a
@@ -165,7 +366,7 @@ networkDescription =
 ```
 
 ## A little more separation
-##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example2.hs)
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example8.hs)
 
 We're currently not doing any IO in `pureNetworkDescription`, but its boundaries are defined entirely by events related to IO.
 
@@ -212,7 +413,6 @@ fanOut (InputIO eOpen eRead) =
   in
     Inputs eOpen eMessage eHelp eQuit eUnknownCommand
 ```
-(and clean it up a little as we go).
 
 At the moment we won't be able to go quite as far with the outputs.
 
@@ -267,7 +467,7 @@ pureNetworkDescription i = do
 ```
 
 ## A lot more separation
-##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example3.hs)
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example9.hs)
 
 The middle section of `domainNetworkDescription` is still a bit of a mess.
 We can clean this up by componentizing the various pieces of functionality that are in play.
@@ -279,6 +479,8 @@ One thing I took away from the Manning Functional Reactive Programming book was 
 
 It is even more clear if you draw up block diagrams for the components.
 They're a bit too labour intensive to prepare for this block, but scratching out some block diagrams on pen and paper can be really handy if you get stuck.
+
+We're going to see some good payoffs for that kind of thinking later on in the series.
 
 What follows is overkill for this particular problem.
 You can always use fewer components with more going on inside each one.
@@ -378,20 +580,18 @@ domainNetworkDescription (Inputs eOpen eMessage eHelp eQuit eUnknown) = do
 and now we're free to tweak the internals of some of these without exposing everything to the body of `domainNetworkDescription.`
 
 ## Refactoring for testing
-##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example4.hs)
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example10.hs)
 
-There's a tantalizing function available in `reactive-banana`.
+We've already come across `interpret`:
 ```haskell
 interpret :: (Event a -> Moment (Event b)) -> [Maybe a] -> IO [Maybe b] 
 ```
-According to the haddocks, the IO is an implementation detail but you can otherwise treat it as a pure function.
+and used it in a setting where we only had one input event and one output event.
 
-Also in the haddocks for `interpret`: "Useful for testing."
-That was like a red rag to a bull for me.
+If we're going to make use of it in with this program though, we're going to need to do some acrobatics.
 
-It looks like we're going to need two data types to use it - one for our input events and one for our output events.
-
-We're up to the challenge:
+We're up for the challenge.
+The first thing to do will be to make data types for our inputs and outputs:
 ```haskell
 data InputCmd =
     Open
@@ -405,10 +605,9 @@ data OutputCmd =
 ```
 
 We are trying to test a network of type `InputIO -> Moment Output IO` using `Event InputCmd` as inputs and `Event [OutputCmd]` as outputs.
+The list of `OutputCmd`s is needed to be able to check if certain outputs are happening simultaneously.
 
-The list of `OutputCmd`s is need to be able to check if certain outputs are happening simultaneously.
-
-So we write a function to get from `Event InputCmd` to `InputIO`:
+We'll write a function to get from `Event InputCmd` to `InputIO`:
 ```haskell
 fanInput :: Event InputCmd -> InputIO
 fanInput eIn =
@@ -423,7 +622,13 @@ fanInput eIn =
   in
     InputIO eOpen eRead
 ```
-and a function to get from `OutputIO` to `Event [OutputCmd]`
+
+
+```haskell
+filterJust :: Event (Maybe a) -> Event a 
+```
+
+We'll also write a function to get from `OutputIO` to `Event [OutputCmd]`
 ```haskell
 mergeOutput :: OutputIO -> Event [OutputCmd]
 mergeOutput (OutputIO eWrite eClose) =
@@ -434,48 +639,21 @@ mergeOutput (OutputIO eWrite eClose) =
 
 We can package this up as:
 ```haskell
-testNetwork :: (InputIO -> Moment OutputIO) -> [Maybe InputCmd] -> IO [Maybe [OutputCmd]]
-testNetwork fn =
-  interpret $ \i -> do
-    o <- fn . fanInput $ i
-    return $ mergeOutput o
-```
-but that rules out testing event networks operating in `MomentIO`, which we may not want to do.
-
-There is a version of `interpret` that works with `MonadIO`, namely `interpretFrameworks`.
-
-We can capture the common parts in another typeclass:
-```haskell
-class MonadMoment m => Testable m where
-  interpretEvents :: (Event a -> m (Event b)) -> [Maybe a] -> IO [Maybe b]
-```
-provide the instances:
-```haskell
-instance Testable Moment where
-  interpretEvents = interpret
-
-instance Testable MomentIO where
-  interpretEvents = interpretFrameworks
-```
-and generalize `testNetwork`:
-```haskell
 testNetwork :: Testable m => (InputIO -> m OutputIO) -> [Maybe InputCmd] -> IO [Maybe [OutputCmd]]
 testNetwork fn =
   interpretEvents $ \i -> do
     o <- fn . fanInput $ i
     return $ mergeOutput o
 ```
-
-From that we can create a testing function for our particular network:
+making use of another typeclass that we concocted in the last post:
 ```haskell
-testIOCmds :: [Maybe InputCmd] -> IO [Maybe [OutputCmd]]
-testIOCmds = testNetwork pureNetworkDescription
+class MonadMoment m => Testable m where
+  interpretEvents :: (Event a -> m (Event b)) -> [Maybe a] -> IO [Maybe b]
 ```
-without having to modify our network description at all.
 
 With some formatting liberties in the output, it behaves admirably when we take it for a spin:
 ```haskell
-> output <- testIOCmds [
+> output <- testNetwork pureNetworkDescription [
     Just (Read "one")
   , Nothing
   , Just (Read "two")
@@ -490,6 +668,8 @@ With some formatting liberties in the output, it behaves admirably when we take 
 ```
 
 This looks pretty handy for use with `QuickCheck` or `HUnit`.
+
+TODO version with Inputs and Outputs
 
 We can also do this for any of the components we've come across so far - mostly because their inputs and outputs have been made up of events, so the fanning and merging functions are usually doable.
 We'll have to get a little trickier later on though.

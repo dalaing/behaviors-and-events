@@ -8,7 +8,18 @@ let
                        then pkgs.haskellPackages
                        else pkgs.haskell.packages.${compiler};
 
-  drv = haskellPackages.callPackage ./. {};
+  modifiedHaskellPackages = haskellPackages.override {
+    overrides = self: super: {
+      mkDerivation = args: super.mkDerivation (args // {
+        enableLibraryProfiling = true;
+      });
+      reactive-banana = self.callPackage ../reactive-banana/reactive-banana {};
+      talk = self.callPackage ./. {};
+    };
+  }; 
+
+  drv = modifiedHaskellPackages.talk;
+
 
 in
 
