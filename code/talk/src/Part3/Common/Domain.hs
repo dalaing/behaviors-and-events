@@ -6,6 +6,8 @@ Stability   : experimental
 Portability : non-portable
 -}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Part3.Common.Domain (
     Inputs(..)
   , Outputs(..)
@@ -13,6 +15,8 @@ module Part3.Common.Domain (
   , InputsCmd(..)
   , OutputsCmd(..)
   ) where
+
+import Control.Lens
 
 import Reactive.Banana
 
@@ -87,48 +91,35 @@ data InputsCmd =
   | Unknown String
   deriving (Eq, Ord, Show)
 
+makePrisms ''InputsCmd
+
+instance Fannable () InputsCmd where
+  type Fanned () InputsCmd = Inputs
+  fanInput eIn =
+    Inputs <$>
+      fanE _Open eIn <*>
+      fanE _Message eIn <*>
+      fanE _LimitUp eIn <*>
+      fanE _LimitDown eIn <*>
+      fanE _Help eIn <*>
+      fanE _Quit eIn <*>
+      fanE _Unknown eIn
+
 data OutputsCmd =
     Write String
   | Close
   deriving (Eq, Ord, Show)
 
-instance Fannable Inputs where
-  type ToFan Inputs = InputsCmd
-  fanInput eIn =
-    let
-      maybeOpen Open = Just ()
-      maybeOpen _      = Nothing
-      eOpen = filterJust $ maybeOpen <$> eIn
+makePrisms ''OutputsCmd
 
-      maybeMessage (Message x) = Just x
-      maybeMessage _             = Nothing
-      eMessage = filterJust $ maybeMessage <$> eIn
-
-      maybeLimitUp LimitUp = Just ()
-      maybeLimitUp _      = Nothing
-      eLimitUp = filterJust $ maybeLimitUp <$> eIn
-
-      maybeLimitDown LimitDown = Just ()
-      maybeLimitDown _      = Nothing
-      eLimitDown = filterJust $ maybeLimitDown <$> eIn
-
-      maybeHelp Help = Just ()
-      maybeHelp _      = Nothing
-      eHelp = filterJust $ maybeHelp <$> eIn
-
-      maybeQuit Quit = Just ()
-      maybeQuit _      = Nothing
-      eQuit = filterJust $ maybeQuit <$> eIn
-
-      maybeUnknown (Unknown x) = Just x
-      maybeUnknown _             = Nothing
-      eUnknown = filterJust $ maybeUnknown <$> eIn
-    in
-      return $ Inputs eOpen eMessage eLimitUp eLimitDown eHelp eQuit eUnknown
-
-instance Mergable Outputs where
-  type Merged Outputs = OutputsCmd
+instance Mergable () OutputsCmd where
+  type ToMerge () OutputsCmd = Outputs
   mergeOutput _ (Outputs eWrite eClose) =
-    foldr (unionWith (++)) never $
-      fmap (fmap (\x -> [Write x])) eWrite ++
-      fmap (fmap (\_ -> [Close])) eClose
+    foldr (unionWith combineResult) never $
+      (fmap (mergeE (pure ()) _Write) eWrite) ++
+      (fmap (mergeE (pure ()) _Close) eClose)
+    {-
+    unionWith combineResult
+      (fmap (mergeE (pure ()) _Write) eWrite)
+      (fmap (mergeE (pure ()) _Close) eClose)
+    -}

@@ -561,7 +561,7 @@ data UnknownOutput = UnknownOutput { ucoeWrite   :: Event String }
 handleUnknown :: MonadMoment m => UnknownInput -> m UnknownOutput
 handleUnknown (UnknownInput eUnknown) =
   let
-      msg x = "Unknown command: " ++ x ++ " (type /help for instructions)"
+    msg x = "Unknown command: " ++ x ++ " (type /help for instructions)"
   in
     return . UnknownOutput $ msg <$> eUnknown
 ```
@@ -682,9 +682,9 @@ class Fannable i where
 
 class Mergable o where
   type Merged o
-  mergeOutput :: o -> (Event [Merged o])
+  mergeOutput :: o -> Event (Merged o)
 
-testNetwork :: (Testable m, Fannable i, Mergable o) => (i -> m o) -> [Maybe (ToFan i)] -> IO [Maybe [Merged o]]
+testNetwork :: (Testable m, Fannable i, Mergable o) => (i -> m o) -> [Maybe (ToFan i)] -> IO [Maybe (Merged o)]
 testNetwork fn =
   interpretEvents $ \i -> do
     fi <- fanInput i

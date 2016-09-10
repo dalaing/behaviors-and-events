@@ -13,23 +13,27 @@ import Reactive.Banana
 
 import Part3.Common
 
-data MessageInput  = MessageInput  { mieRead  :: Event String }
-data MessageOutput = MessageOutput { moeWrite :: Event String }
+data MessageInput = MessageInput {
+    mieRead  :: Event String
+  , mibLimit :: Behavior Int
+  }
+
+data MessageOutput = MessageOutput {
+    moeWrite :: Event String
+  }
 
 handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
-handleMessage (MessageInput eMessage) = do
+handleMessage (MessageInput eMessage bLimit) = do
+  bMessages <- accumB [] . fmap (:) $ eMessage
   let
-    limitCons n x xs = take n (x : xs)
-  bMessages <- accumB [] . fmap (limitCons 3) $ eMessage
-  let
-    f ms m = m ++ " (last 3 messages: " ++ show ms ++ ")"
-    eOut = f <$> bMessages <@> eMessage
+    f n ms m = m ++ " (previous " ++ show n ++ " messages: " ++ show (take n ms) ++ ")"
+    eOut = f <$> bLimit <*> bMessages <@> eMessage
   return $ MessageOutput eOut
 
 domainNetworkDescription :: Inputs -> Moment Outputs
 domainNetworkDescription (Inputs eOpen eMessage _ _ eHelp eQuit eUnknown) = do
   OpenOutput eoWrite        <- handleOpen $ OpenInput eOpen
-  MessageOutput emWrite     <- handleMessage $ MessageInput eMessage
+  MessageOutput emWrite     <- handleMessage $ MessageInput eMessage (pure 3)
   HelpOutput ehWrite        <- handleHelp $ HelpInput eHelp
   QuitOutput eqWrite eqQuit <- handleQuit $ QuitInput eQuit
   UnknownOutput euWrite     <- handleUnknown $ UnknownInput eUnknown

@@ -37,7 +37,6 @@ library
                      , Part3.Common.Domain
                      , Part3.Common.Components.Open
                      , Part3.Common.Components.Help
-                     , Part3.Common.Components.Limit
                      , Part3.Common.Components.Quit
                      , Part3.Common.Components.Unknown
                      , Part3.Example1
@@ -47,25 +46,44 @@ library
                      , Part3.Example5
                      , Part3.Example6
                      , Part3.Example7
-                     -- , Part4.Account.Common
-                     -- , Part4.Account.Example1
-                     -- , Part4.Account.Example2
-                     -- , Part4.Account.Example3
-                     -- , Part4.Account.Example4
-                     -- , Part4.Account.Example5
-                     -- , Part4.Account.Example6
-                     -- , Part4.Mem
-                     , Part5.Names.Example1
-                     , Part5.Names.Example1.Common
-                     , Part5.Names.Example1.Name
-                     , Part5.Names.Example1.Cmd
-                     -- , Part4.Notifications.Example1
+                     , Part3.Example8
+                     , Part4.Common
+                     , Part4.Common.Util
+                     , Part4.Common.Testing
+                     , Part4.Common.IO
+                     , Part4.Types
+                     , Part4.Types.NameError
+                     , Part4.Types.Notification
+                     , Part4.Types.PrivateMessage
+                     , Part4.Name
+                     , Part4.Command.Types
+                     , Part4.Command.Domain
+                     , Part4.Command.Components.Open
+                     , Part4.Command.Components.Message
+                     , Part4.Command.Components.Kick
+                     , Part4.Command.Components.Tell
+                     , Part4.Command.Components.Help
+                     , Part4.Command.Components.Quit
+                     , Part4.Command.Components.Unknown
+                     , Part5.Switch
+                     , Part5.Filter
+                     , Part5.SwitchInputs
+                     , Part5.SwitchBlock
+                     , Part7.Network1
+                     -- , Part7.Network2
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base >=4.8 && <4.9
                      , reactive-banana >= 1.1 && < 1.2
                      , profunctors >= 5.2 && < 5.3
                      , containers >= 0.5 && < 0.6
+                     , lens >= 4.13 && < 4.14
+                     , haskeline >= 0.7 && < 0.8 
+                     , safe >= 0.3 && < 0.4
+                     , mtl >= 2.2 && < 2.3
+                     , network >= 2.6 && < 2.7
+                     , stm >= 2.4 && < 2.5
+                     , async >= 2.1 && < 2.2
   hs-source-dirs:      src
   ghc-options:         -Wall
   default-language:    Haskell2010

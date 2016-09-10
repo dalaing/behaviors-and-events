@@ -15,6 +15,5 @@ import Part3.Common.IO as X
 import Part3.Common.Domain as X
 import Part3.Common.Components.Open as X
 import Part3.Common.Components.Help as X
-import Part3.Common.Components.Limit as X
 import Part3.Common.Components.Quit as X
 import Part3.Common.Components.Unknown as X

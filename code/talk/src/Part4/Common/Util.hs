@@ -6,7 +6,7 @@ Stability   : experimental
 Portability : non-portable
 -}
 {-# LANGUAGE RankNTypes #-}
-module Part3.Common.Util (
+module Part4.Common.Util (
     orElse
   , leftmost
   , filterPrism

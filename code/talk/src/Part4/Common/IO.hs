@@ -8,7 +8,7 @@ Portability : non-portable
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Part3.Common.IO (
+module Part4.Common.IO (
     InputSources
   , mkInputSources
   , InputIO(..)
@@ -28,7 +28,7 @@ import Control.Lens
 import Reactive.Banana
 import Reactive.Banana.Frameworks
 
-import Part3.Common.Testing
+import Part4.Common.Testing
 
 data EventSource a = EventSource {
     addHandler :: AddHandler a

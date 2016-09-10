@@ -20,9 +20,12 @@ handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- accumB [] . fmap (:) $ eMessage
   let
-    bLimitedMessages = take 3 <$> bMessages
-    f ms m = m ++ " (previous 3 messages: " ++ show ms ++ ")"
-    eOut = f <$> bLimitedMessages <@> eMessage
+    f ms m = m ++ " (previous messages: " ++ show ms ++ ")"
+    bHasMessages = (not . null) <$> bMessages
+    eOut = leftmost [
+        f <$> bMessages <@> whenE bHasMessages eMessage
+      , eMessage
+      ]
   return $ MessageOutput eOut
 
 domainNetworkDescription :: Inputs -> Moment Outputs

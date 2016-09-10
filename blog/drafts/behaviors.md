@@ -20,7 +20,9 @@ instance Functor Behavior
 instance Applicative Behavior
 ```
 
-This means that we can create a behavior that has a constant value across all times using `pure`.
+The documentation mentions that the semantics of an `Behavior a` allows you to view it as being similar to `Time -> a`.
+
+The `Applicative` instance means that we can create a behavior that has a constant value across all times using `pure`.
 
 A more interesting way to create a behavior is with `stepper`:
 ```haskell
@@ -49,10 +51,70 @@ or
 f <$> bBehavior1 <*> bBehavior2 <@ eEventThatIsJustActingAsATrigger
 ```
 
-## Message history
-##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part3/Message/)
+What has this given us?
+It has given us a way to manage state inside an FRP system.
 
-Let's use these along with `stepper` to demonstrate some of the above.
+Say we want something like `Reader`.
+We can create a `Behavior` using `pure` to get something similar.
+The equivalent of using `ask` is to sample the `Behavior` using `<@` and an event that indicates when you would like to get the value out.
+
+If you want something like `State`, you can create your `Behavior` using `stepper`.
+In that case sampling the value with `<@` is like `get` and the input event is acting like `put`.
+
+The biggest change happening here comes from the fact that events can fire multiple times, and we can combine multiple events into the one event.
+This means that we have the option to specify all of the usages of `put` for the our `State` over its entire lifetime, all in the one call.
+We can take care of all of our usages of `get` with one function as well.
+
+An example of putting all of our `put`-equivalents in on basket s describing whether a user is logged in or not:
+```haskell
+logInHandler :: MonadMoment m => Event () -> Event () -> m (Behavior LogInState)
+logInHandler eLogIn eLogOut =
+  stepper LoggedOut . leftmost $ [
+      -- change the state to LoggedIn when the user logs in
+      LoggedIn  <$ eLogIn
+      -- change the state to LoggedOut when the user logs out
+    , LoggedOut <$ eLogOut
+    ]
+```
+
+While we have that option, we don't have to take it.
+If it makes it easier to define the event graph, we can have one use of `<@` that specifies all of our usages of `get` for non-authenticated users and another use of `<@` for the authenticated users.
+
+We can add some `get`-equivalents to the above example to check for errors:
+```haskell
+logIn :: LogInState -> Either LogInError LogInState
+logIn LoggedIn  = Left AlreadyLoggedIn
+logIn LoggedOut = Right LoggedIn
+
+logOut :: LogInState -> Either LogInError LogInState
+logOut LoggedOut = Left NotLoggedIn
+logOut LoggedIn  = Right LoggedOut
+
+-- This makes use of the RecursiveDo language extension
+-- Trust me for now - I'll explain how that works later
+logInHandler :: MonadMoment m => Event () -> Event () -> m (Behavior LogInState, Event LogInError)
+logInHandler eLogIn eLogOut = mdo
+  bLogInState <- stepper LoggedOut eLogInState
+  (eLogInError, eLogInState) = split . leftmost $ [
+      logIn  <$> bLogInState <@ eLogIn
+      logOut <$> bLogInState <@ eLogOut
+    ]
+  return (bLogInState, eLogInError)
+```
+while still being able to query the logged-in state elsewhere in the system.
+
+Since `Behavior`s are defined at all times, it means that we can sample them outside of the points in time that were used to define them.
+Perhaps that is obvious, but it means that you can define and/or compose your `Behavior`s in one library, and then sample it with `Event`s that are defined and/or composed in another library.
+Composition is a huge win.
+
+There's a lot more that we can do with these pieces, and there are other ways that you can view them.
+I just thought it might be good to mention that you can view `Behavior`s as modelling state.
+Hopefully it helps people with their intuitions, before I mess with them later on.
+
+## Message history
+##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part3/)
+
+Let's use `stepper`, `<@>` and `<@` to demonstrate what we can do with behaviors.
 
 As a reminder, our previous take on message handling was pretty boring:
 ```haskell
@@ -64,9 +126,11 @@ handleMessage (MessageInput eMessage) = do
   return $ MessageOutput eMessage
 ```
 
+### The last message
+
 We'll spice that up by printing the last message that was echoed:
 ```haskell
--- see Part3.Message.Example1
+-- see Part3.Example1
 handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- stepper "" eMessage
@@ -76,13 +140,17 @@ handleMessage (MessageInput eMessage) = do
   return $ MessageOutput eOut
 ```
 
-We're using `stepper` to keep the most recently seen message around so that we can sample it any time.
+We're using `stepper` to keep the most recently seen message around so that we can sample it later on.
 The updates to `stepper` are being driven by `eMessage`, and won't be seen until the next transaction.
-By using `eMessage` to sample `bMessages` we're grabbing the value of `bMessages` at the moment before it gets updated by `eMessage`, and so we're able to grab the last message that we saw.
+By using `eMessage` to sample `bMessages` we're grabbing the value of `bMessages` at the moment before it gets updated by `eMessage`.
+
+This is how we manage to use the behavior to get hold of the last message that we saw.
+
+### The length of the last message
 
 We've already got the last message on the screen, so maybe displaying the length of the last message would be more interesting:
 ```haskell
--- see Part3.Message.Example2
+-- see Part3.Example2
 handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- stepper "" eMessage
@@ -94,24 +162,26 @@ handleMessage (MessageInput eMessage) = do
 ```
 It also shows that I'm not lying about the `Functor` instance.
 
+### All of the previous messages
+
 We use another function to do more interesting things with behaviors:
 ```haskell
 accumB :: MonadMoment m => a -> Event (a -> a) -> m (Behavior a) 
 accumB x eF = ...
 ```
 
-This acts like a scan.
-The behavior starts with the value `x`, and every time the event `eF` occurs the function gets applied to the current value of the behavior.
+On one hand this is like `accumE`, in that it accumulates the composition of the functions inside the various occurrences of the event.
+On the other hand this is a bit like `stepper`, in that the change isn't observable until the next logical moment in time.
 
-This works nicely with `unions`:
+Both `accumE` and `accumB` work nicely with `unions`:
 ```haskell
 unions :: [Event (a -> a)] -> Event (a -> a)
 ```
-if we want to build a behavior from a number of events.
+if we want to work with several events.
 
 We can use this to accumulate all of the messages that we've seen:
 ```haskell
--- see Part3.Message.Example3
+-- see Part3.Example3
 handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- accumB [] . fmap (:) $ eMessage
@@ -121,9 +191,42 @@ handleMessage (MessageInput eMessage) = do
   return $ MessageOutput eOut
 ```
 
+### Conditional events based on behaviors
+
+We can filter events using the value of a behavior at the time of the event using `whenE`:
+```haskell
+whenE :: Behavior Bool -> Event a -> Event a 
+```
+
+If we want to use the value of the event in the filtering decision, we can use `filterApply`:
+```haskell
+filterApply :: Behavior (a -> Bool) -> Event a -> Event a 
+```
+
+This gives us one (slightly contrived) option for not printing anything special when the history is empty:
+```haskell
+-- see Part3.Example4
+handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
+handleMessage (MessageInput eMessage) = do
+  bMessages <- accumB [] . fmap (:) $ eMessage
+  let
+    f ms m = m ++ " (previous messages: " ++ show ms ++ ")"
+    bHasMessages = (not . null) <$> bMessages
+    eOut = leftmost [
+        f <$> bMessages <@> whenE bHasMessages eMessage
+      , eMessage
+      ]
+  return $ MessageOutput eOut
+```
+
+If there are messages, `bHasMessages` will be `True`. If a message arrives then both of the events leading into `eOut` will be active, and the first event in the list will get used because that's how `leftmost` works.
+If there are no messages, `bHasMessages` will be `False` and `eMessage` will flow through to `eOut` on its own.
+
+### Trimming the history
+
 If we just want to print the last 3 messages that we've seen we can do that:
 ```haskell
--- see Part3.Message.Example4
+-- see Part3.Example5
 handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- accumB [] . fmap (:) $ eMessage
@@ -137,12 +240,14 @@ handleMessage (MessageInput eMessage) = do
 Maybe we want the number of messages to be configurable, or we want to tie it to a modifiable setting.
 We can get some future proofing for that by passing in the number of messages that we want as a behavior.
 
+Doing this is a common FRP idiom.
+
 This is how it looks:
 ```haskell
--- see Part3.Message.Example5
+-- see Part3.Example6
 data MessageInput = MessageInput {
     mieRead  :: Event String
-    mibLimit :: Behavior Int
+  , mibLimit :: Behavior Int
   }
 
 handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
@@ -161,7 +266,7 @@ There's a problem though: `bMessages` accumulates all of the messages and never 
 
 For a fixed limit, we can just bring the `take 3` code into the `accumB`:
 ```haskell
--- see Part3.Message.Example6
+-- see Part3.Example7
 handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage (MessageInput eMessage) = do
   let
@@ -173,26 +278,51 @@ handleMessage (MessageInput eMessage) = do
   return $ MessageOutput eOut
 ```
 
+### A component for the history limit
+
 In order to modify the limit as we go, we need to introduce a few more pieces.
 
 Let's assume that the limit on the history starts at 1, and is modified by two events: one increments the limit, the other decrements the limit unless it is already at 0.
 
 We can build a behavior for the limit using `accumB`:
 ```haskell
-bLimit <- accumB 1 . unions $ [
-    (+ 1) <$ eUp
-  , (max 0 . subtract 1) <$ eDown
-  ]
+data LimitInput = LimitInput {
+    lieLimitUp   :: Event ()
+  , lieLimitDown :: Event ()
+  }
+
+data LimitOutput = LimitOutput {
+    lobLimit :: Behavior Int
+  }
+
+handleLimit :: MonadMoment m => LimitInput -> m LimitOutput
+handleLimit (LimitInput eUp eDown) = do
+  bLimit <- accumB 1 . unions $ [
+      succ <$ eUp
+    , (max 0 . pred) <$ eDown
+    ]
+  return $ LimitOutput bLimit
 ```
+
+If we wanted to be a little fancier for no real good reason, we could use recursive values via the `RecursiveDo` language extension:
+```haskell
+{-# LANGUAGE RecursiveDo #-}
+handleLimit :: MonadMoment m => LimitInput -> m LimitOutput
+handleLimit (LimitInput eUp eDown) = mdo
+  let
+    eDownNonNegative = whenE ((> 0) <$> bLimit) eDown
+  bLimit <- accumB 1 . unions $ [
+      succ <$ eUp
+    , pred <$ eDownNonNegative
+    ]
+  return $ LimitOutput bLimit
+```
+
+As long as your behaviors recurse through intermediate events and your events through intermediate behaviors, `reactive-banana` will take care of you.
 
 The behavior gives us a step function, but what we're going to end up wanting is an event that triggers when the behavior changes.
 
-We can get this by replacing `accumB` with `accumE`:
-```haskell
-accumE :: MonadMoment m => a -> Event (a -> a) -> m (Event a) 
-accumE x eF = ...
-```
-like so:
+We can do that with `accumE`:
 ```haskell
 eLimit <- accumE 1 . unions $ [
     (+ 1) <$ eUp
@@ -200,14 +330,12 @@ eLimit <- accumE 1 . unions $ [
   ]
 ```
 
-Unlike with `accumB`, we can observe these changes in the same transaction as the event that caused the change.
-
-If we end up needing both, we can efficiently combine the two of these by using `mapAccum`:
+We are going to end up needing both, and we can efficiently combine the two of these by using `mapAccum`:
 ```haskell
 mapAccum :: MonadMoment m => acc -> Event (acc -> (x, acc)) -> m (Event x, Behavior acc) 
 ```
 
-If we add a few new commands to handle increasing and decreasing the history limit, we can create a new component that will give as both a behavior trackign the number of messages we should be displaying and an event that lets us known when that value has changed:
+We can use this to create a new component that will give as both a behavior tracking the number of messages we should be displaying and an event that lets us known when that value has changed:
 ```haskell
 data LimitInput = LimitInput {
     lieLimitUp :: Event ()
@@ -222,15 +350,17 @@ data LimitOutput = LimitOutput {
 handleLimit :: MonadMoment m => LimitInput -> m LimitOutput
 handleLimit (LimitInput eUp eDown) = do
   (eLimit, bLimit) <- mapAccum 1 . fmap (\f x -> (f x, f x)) . unions $ [
-      (+ 1) <$ eUp
-    , (max 0 . subtract 1) <$ eDown
+      succ <$ eUp
+    , (max 0 . pred) <$ eDown
     ]
   return $ LimitOutput eLimit bLimit
 ```
 
 Having both a behavior and an event that triggers when the behavior changes can be handy.
 
-Assuming we have both, we can prepare a component to manage and print the message history.
+### Trimming the history
+
+With the limit component in hand we can prepare a component to manage and print the message history.
 
 We set up our inputs and outputs:
 ```haskell
@@ -246,7 +376,7 @@ data MessageOutput = MessageOutput {
 ```
 and then we connect them up:
 ```haskell
--- see Part3.Message.Example7
+-- see Part3.Example8
 addMessage :: Int -> String -> [String] -> [String]
 addMessage n m ms =
   take n (m : ms)
@@ -266,545 +396,199 @@ handleMessage (MessageInput eMessage eLimit bLimit) = do
 When the limit changes, we trim the list.
 When a message comes in, we add the message to the front of the list and then trim it to the current limit.
 
-## A premium echo application
-##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part3/Account/)
+This would be useful if we needed to immediately reclaim the memory when the limit changes, but we could probably just make do with a version of `handleLimit` which just returns a `Behavior` and let `addMessage` handle the trimming of the history.
 
-The next post is going to be pushing us towards the chat server functionality that we're after.
+## Testing with behaviors
 
-Before I start that earnest, I'm going to develop a whimsical feature in this section to demonstrate some of the options we have for filtering events with behaviors.
+This will be filled in once I have my talk finished...
+<!--
 
-As a prequel to our tale, assume that we've been tracking how many messages a user sends during their interaction with our application, and that we let them know about it when they quit.
+This next section is a bit gory, but is here to demonstrate that you can test event networks which have behaviors in their inputs and outputs if you're willing to get your hands dirty.
 
-The data structures are simple:
+If that doesn't sound like your cup of tea, feel free to [skip ahead](./components.html).
+
+In order to test code that has behaviors as inputs or outputs, we need to modify our testing code.
+
+I'm not advocating actually using this, since it's much messier than it needs to be.
+I just wanted something to give people a starting point, and to show that it can be done.
+
+We add a data type to carry information about both the behaviors and the events that are inputs to our event network: 
 ```haskell
-data CounterInput = CounterInput {
-    cieMessage :: Event String
-  , cieQuit    :: Event ()
-  }
+data Command b e = Command {
+    _cmdB :: b
+  , _cmdE :: e
+  } deriving (Eq, Ord, Show)
 
-data CounterOutput = CounterOutput {
-    coeMessage :: Event String
-  }
+mkLenses ''Command
 ```
-and the component is use `accumB` and `<@` to achieve the desired functionality.
+and change the `Fannable` class to use it:
 ```haskell
-handleCounter :: MonadMoment m => CounterInput -> m CounterOutput
-handleCounter (CounterInput eMessage eQuit) = do
-  bLines <- accumB 0 ((+ 1) <$ eMessage)
-  let
-    f l = show l ++ " messages sent"
-    eOut = f <$> bLines <@ eQuit
-  return $ CounterOutput eOut
-```
-
-This integrates well with our existing network:
-```haskell
-domainNetworkDescription :: Inputs -> Moment Outputs
-domainNetworkDescription (Inputs eOpen eMessage eHelp eQuit eUnknown) = do
-  OpenOutput eoWrite        <- handleOpen $ OpenInput eOpen
-  CounterOutput ecWrite     <- handleCounter $ CounterInput eMessage eQuit 
-  MessageOutput emWrite     <- handleMessage $ MessageInput eMessage
-  HelpOutput ehWrite        <- handleHelp $ HelpInput eHelp
-  QuitOutput eqWrite eqQuit <- handleQuit $ QuitInput eQuit
-  UnknownOutput euWrite     <- handleUnknown $ UnknownInput eUnknown
-  return $ 
-    Outputs [eoWrite, ecWrite ,emWrite, ehWrite, eqWrite, euWrite] [eqQuit]
+class Fannable b e where
+  type Fanned b e
+  fanInput :: Testable m => Event (Command b e) -> m (Fanned b e)
 ```
 
-Our story begins in earnest, as many stories often do, when someone decided to try to monetize something without first trying to understand if there was a market for it.
+The idea here is that we'll use the input events and the values in `cmdB` to reconstitute the behaviors using `stepper`.
 
-This immediately led to two different account types for our users:
+For the outputs we make a similar change.
+
+We carry the behaviors and possibly multiple simultaneous events in our data type:
 ```haskell
-data AccountType =
-    Plebian
-  | Premium
+data Result b e = Result {
+    _resB :: b
+  , _resE :: [e]
+  } deriving (Eq, Ord, Show)
+
+mkLenses ''Result
+```
+and the the `Mergable` class uses that and picks up an extra argument:
+```haskell
+class Mergable b e where
+  type ToMerge b e
+  mergeOutput :: Event () -> ToMerge b e -> Event (Result b e)
+```
+
+The extra argument is used to sample the output behaviors, so we will know what their values are at each point in time that is observable by the event network.
+
+We see this at work in the version of `testNetwork`:
+```haskell
+testNetwork :: ( 
+            Testable m
+          , Fannable ib ie
+          , Mergable ob oe
+          ) => (Fanned ib ie -> m (ToMerge ob oe)) 
+            -> [Maybe (Command ib ie)] 
+            -> IO [Maybe (Result ob oe)]
+testNetwork fn =
+  interpretEvents $ \i -> do
+    fi <- fanInput i
+    o <- fn fi
+    return $ mergeOutput (() <$ i) o
+```
+
+
+We'll also add some helper functions for `Fannable`:
+```haskell
+filterPrism :: Prism' s a -> Event s -> Event a
+filterPrism p e = 
+  filterJust $ preview p <$> e
+
+fanE :: (Testable m, Fannable b e) => Prism' e a -> Event (Command b e) -> m (Event a)
+fanE p = 
+  return . filterPrism p . fmap _cmdE
+
+stepperLens :: MonadMoment m => a -> Lens' s a -> Event s -> m (Behavior a)
+stepperLens x l e = 
+  stepper x (view l <$> e)
+
+fanB :: (Testable m, Fannable b e) => a -> Lens' b a -> Event (Command b e) -> m (Behavior a)
+fanB x l = 
+  stepperLens x (cmdB . l)
+```
+and for `Mergable`:
+```haskell
+combineResult :: Result b e -> Result b e -> Result b e
+combineResult (Result b1 e1) (Result b2 e2) =
+  Result b1 (e1 ++ e2)
+
+class Mergable b e where
+  type ToMerge b e
+  mergeOutput :: Event () -> ToMerge b e -> Event (Result b e)
+
+mergeE :: Mergable b e => Behavior b -> Prism' e a -> Event a -> Event (Result b e)
+mergeE b p e =
+  (\bv ev -> Result bv [review p ev]) <$> b <@> e
+
+mergeB :: Mergable b e => Behavior b -> Event () -> Event (Result b e)
+mergeB b e =
+  (\bv -> Result bv []) <$> b <@ e
+```
+
+Let's take a look at them in action.
+
+### Testing `handleLimit`
+
+```haskell
+data LimitInputCmd =
+    LLimitUp
+  | LLimitDown
   deriving (Eq, Ord, Show)
-```
-and the ability to upgrade an account:
-```haskell
-data UpgradeInput  = UpgradeInput  { uieUpgrade :: Event () }
-data UpgradeOutput = UpgradeOutput { uobAccount :: Behavior AccountType }
 
-handleUpgrade :: MonadMoment m => UpgradeInput -> m UpgradeOutput
-handleUpgrade (UpgradeInput eUpgrade) = do
-  bAccount <- stepper Plebian (Premium <$ eUpgrade)
-  return $ UpgradeOutput bAccount
-```
-
-The cunning plan is to limit `Plebian` users to a certain number of messages per interaction with our application, while `Premium` users can send an unlimited number of messages.
-
-If a `Plebian` user reaches the hard limit, the application will print something and exit.
-There will also be a soft limit, which will remind the user that they can upgrade.
-Marketing wanted to bug the user every second message, but we told them there were technical reasons why that wasn't feasible.
-
-We're going to start with a soft limit of 5 messages and a hard limit of 10 messages.
-
-We know what we want to do once we reach the various limits, and can encapsulate that:
-```haskell
-data LimitEvents = LimitEvents {
-    lieSoftLimit :: Event ()
-  , lieHardLimit :: Event ()
-  }
-
-data LimitOutput = LimitOutput {
-    loeWrite :: Event String
-  , loeQuit  :: Event ()
-  }
-
-translateLimitEvents :: LimitEvents -> LimitOutput
-translateLimitEvents (LimitEvents eSoftLimit eHardLimit) =
-  let
-    eSoftLimitMessage =
-      "You are using a Plebian account.  Consider upgrading to a Premium account for unlimited messages." <$ eSoftLimit
-    eHardLimitMessage =
-      "You have reached your message limit for a Plebian account, please upgrade." <$ eHardLimit
-    eMessage =
-      leftmost [
-          eHardLimitMessage
-        , eSoftLimitMessage
-        ]
-    eQuit =
-      eHardLimit
-  in
-    LimitOutput eMessage eQuit
-```
-
-Once we work out how to create `LimitEvents` values, we'll have something like this for our event network:
-```haskell
-domainNetworkDescription :: Inputs -> Moment Outputs
-domainNetworkDescription (Inputs eOpen eMessage eUpgrade eHelp eQuit eUnknown) = do
-  OpenOutput eoWrite         <- handleOpen $ OpenInput eOpen
-  UpgradeOutput bAccount     <- handleUpgrade $ UpgradeInput eUpgrade
-  LimitOutput elWrite elQuit <- fmap translateLimitEvents ???
-  MessageOutput emWrite      <- handleMessage $ MessageInput eMessage
-  HelpOutput ehWrite         <- handleHelp $ HelpInput eHelp
-  QuitOutput eqWrite eqQuit  <- handleQuit $ QuitInput eQuit
-  UnknownOutput euWrite      <- handleUnknown $ UnknownInput eUnknown
-  return $ 
-    Outputs 
-      [eoWrite, elWrite ,emWrite, ehWrite, eqWrite, euWrite]
-      [elQuit, eqQuit]
-```
-
-Now we just need to work out when the limits are reached.
-
-There are few different ways that we can achieve this.
-
-### Using `whenE` with fixed limits
-
-Given and account type and the number of messages that have been sent so far, we can write functions that indicate when we consider that a limit has been reached:
-```haskell
-softLimitCheck :: AccountType -> Int -> Bool
-softLimitCheck Plebian x = x `mod` 5 == 4
-softLimitCheck Premium x = False
-
-hardLimitCheck :: AccountType -> Int -> Bool
-hardLimitCheck Plebian x = x >= 9
-hardLimitCheck Premium x = False
-```
-
-The soft limit function is written so that we'll bug the user to upgrade at a particular frequency, regardless of hte hard limit.
-
-If we have behaviors carrying the current account type and the number of lines we've seen so far, then we can use the `Applicative` instance and the above functions to create a `Behavior Bool`.
-
-For the soft limit, this looks like:
-```haskell
-bSoftLimitReached = softLimitCheck <$> bAccount <*> bLines
-```
-
-We can use a `Behavior Bool` to selectively filter events, using `whenE`:
-```haskell
-whenE :: Behavior Bool -> Event a -> Event a 
-```
-which only allows activations of the input event to pass through it when the behavior has value `True`.
-
-This can be used to create an event that will activate whenever we hit our soft limit:
-```haskell
-eSoftLimitReached = () <$ whenE bSoftLimitReached eMessage
-```
-
-That is all the pieces we need to create the `LimitEvents` value we were after:
-```haskell
--- see Part3.Account.Example1
-data LimitInput = LimitInput {
-    lieMessage :: Event String
-  , libAccount :: Behavior AccountType
-  }
-
-handleLimit :: MonadMoment m => LimitInput -> m LimitEvents
-handleLimit (LimitInput eMessage bAccount) = do
-  bLines <- accumB 0 ((+ 1) <$ eMessage)
-  let
-    bSoftLimitReached = softLimitCheck <$> bAccount <*> bLines
-    bHardLimitReached = hardLimitCheck <$> bAccount <*> bLines
-
-    eSoftLimitReached = () <$ whenE bSoftLimitReached eMessage
-    eHardLimitReached = () <$ whenE bHardLimitReached eMessage
-  return $ LimitEvents eSoftLimitReached eHardLimitReached
-```
-
-This slots into our event network nicely:
-```haskell
-domainNetworkDescription :: MonadMoment m => Inputs -> m Outputs
-domainNetworkDescription (Inputs eOpen eMessage eUpgrade eHelp eQuit eUnknown) = do
-  OpenOutput eoWrite         <- handleOpen $ OpenInput eOpen
-  UpgradeOutput bAccount     <- handleUpgrade $ UpgradeInput eUpgrade
-  LimitOutput elWrite elQuit <- fmap translateLimitEvents .
-                                handleLimit $ LimitInput eMessage bAccount
-  MessageOutput emWrite      <- handleMessage $ MessageInput eMessage
-  HelpOutput ehWrite         <- handleHelp $ HelpInput eHelp
-  QuitOutput eqWrite eqQuit  <- handleQuit $ QuitInput eQuit
-  UnknownOutput euWrite      <- handleUnknown $ UnknownInput eUnknown
-  return $ 
-    Outputs 
-      [eoWrite, elWrite, emWrite, ehWrite, eqWrite, euWrite]
-      [elQuit, eqQuit]
-```
-
-### Using `whenE` with variable limits
-
-It is probably good practice to set the actual limits via behaviors rather than just hard coding them.
-
-We need to pass in those limits as behaviors:
-```haskell
-data LimitInput = LimitInput {
-    lieMessage   :: Event String
-  , libAccount   :: Behavior AccountType
-  , libSoftLimit :: Behavior Int
-  , libHardLimit :: Behavior Int
-  }
-```
-and we need to update our limit-checking functions:
-```haskell
-softLimitCheck :: Int -> AccountType -> Int -> Bool
-softLimitCheck n Plebian x = x `mod` n == (n - 1)
-softLimitCheck _ Premium _ = False
-
-hardLimitCheck :: Int -> AccountType -> Int -> Bool
-hardLimitCheck n Plebian x = x >= (n - 1)
-hardLimitCheck _ Premium _ = False
-```
-
-After that, we just need to connect the new behaviors to those functions:
-```haskell
--- see Part3.Account.Example2
-handleLimit :: MonadMoment m => LimitInput -> m LimitEvents
-handleLimit (LimitInput eMessage bAccount bSoftLimit bHardLimit) = do
-  bLines <- accumB 0 ((+ 1) <$ eMessage)
-  let
-    bSoftLimitReached = softLimitCheck <$> bSoftLimit <*> bAccount <*> bLines
-    bHardLimitReached = hardLimitCheck <$> bHardLimit <*> bAccount <*> bLines
-
-    eSoftLimitReached = () <$ whenE bSoftLimitReached eMessage
-    eHardLimitReached = () <$ whenE bHardLimitReached eMessage
-  return $ LimitEvents eSoftLimitReached eHardLimitReached
-````
-
-### Using `filterApply`
-
-If we need the event being filtered to take part in the decision along with some behaviours, we can use `filterApply`:
-```haskell
-filterApply :: Behavior (a -> Bool) -> Event a -> Event a 
-```
-
-We can see this in use if we change `handleLimit` to accumulate an event rather than a behavior to track the number of messages sent so far:
-```haskell
--- see Part3.Account.Example3
-handleLimit :: MonadMoment m => LimitInput -> m LimitEvents
-handleLimit (LimitInput eMessage bAccount bSoftLimit bHardLimit) = do
-  eLines <- accumE (-1) ((+ 1) <$ eMessage)
-  let
-    bSoftLimitFn = softLimitCheck <$> bSoftLimit <*> bAccount
-    bHardLimitFn = hardLimitCheck <$> bHardLimit <*> bAccount
-
-    eSoftLimitReached = () <$ filterApply bSoftLimitFn eLines
-    eHardLimitReached = () <$ filterApply bHardLimitFn eLines
-  return $ LimitEvents eSoftLimitReached eHardLimitReached
-```
-
-This is a bit contrived, but it's enough to demonstrate the function.
-
-### Using `switchB`
-
-The solutions so far get the job done, but we can do better.
-
-Once we've upgraded our account we don't need to count the number of messages coming through anymore - but out various solutions so far will keep counting in the background.
-
-We can change our behaviors based on various events by using `switchB`:
-```haskell
-switchB :: MonadMoment m => Behavior a -> Event (Behavior a) -> m (Behavior a) 
-```
-
-The output begins as the first behavior.
-Whenever the event fires, the output becomes the behavior contained in the event.
-
-With `switchB` in play, we only need the limit functions for the plebian accounts:
-```haskell
-softLimitCheck :: Int -> Int -> Bool
-softLimitCheck n x = x `mod` n == (n - 1)
-
-hardLimitCheck :: Int -> Int -> Bool
-hardLimitCheck n x = x >= (n - 1)
-```
-and we use `pure True` for the premium accounts.
-
-We build our `Behavior Bool` out of these pieces like this:
-```haskell
-  let
-    bPlebianSoft = softLimitCheck <$> bSoftLimit <*> bLines
-    bPremiumSoft = pure False
-
-  bSoft <- switchB bPlebianSoft (bPremiumSoft <$ eUpgrade)
-```
-
-The overall component looks like this:
-```haskell
--- see Part3.Account.Example4
-data LimitInput = LimitInput {
-    lieUpgrade   :: Event ()
-  , lieMessage   :: Event String
-  , libSoftLimit :: Behavior Int
-  , libHardLimit :: Behavior Int
-  }
-
-handleLimit :: MonadMoment m => LimitInput -> m LimitEvents
-handleLimit (LimitInput eUpgrade eMessage bSoftLimit bHardLimit) = do
-  bLines <- accumB 0 ((+ 1) <$ eMessage)
-
-  let
-    bPlebianSoft = softLimitCheck <$> bSoftLimit <*> bLines
-    bPremiumSoft = pure False
-    bPlebianHard = hardLimitCheck <$> bHardLimit <*> bLines
-    bPremiumHard = pure False
-
-  bSoft <- switchB bPlebianSoft (bPremiumSoft <$ eUpgrade)
-  bHard <- switchB bPlebianHard (bPremiumHard <$ eUpgrade)
-
-  let
-    eSoftLimitReached = () <$ whenE bSoft eMessage
-    eHardLimitReached = () <$ whenE bHard eMessage
-  return $ LimitEvents eSoftLimitReached eHardLimitReached
-```
-
-It's a small win now, but it'll become more significant as we work on more complex networks.
-
-We can also use multiple events to switch to multiple behaviors, and events which fire multiple times to jump back and forth between different behaviors - there's a lot we can do with this stuff.
-
-### Using `switchE`
-
-We can go a little further in this case using `switchE`:
-```haskell
-switchE :: MonadMoment m => Event (Event a) -> m (Event a) 
-```
-This uses the inner event between firings of the outer event.
-
-An example should help.
-In our case we'll be using it like this:
-```haskell
-eSoftLimitReached <- switchE . leftmost $ [
-    eSoftPlebianLimitReached <$ eOpen
-  , eSoftPremiumLimitReached <$ eUpgrade
-  ]
-```
-and the output will be `eSoftPlebianLimitReached` from the time `eOpen` is activated until `eUpgrade` is activated, at which point it will switch to `eSoftPremiumLimited`.
-
-It would be nice if `switchE` took an initial event to use until the first outer even fired - both because it would be useful and because it would by symmetric with `switchB` - but we do what we can with what we have.
-
-To use this, we'll pass a few more events into our input data structure:
-```haskell
-data LimitInput = LimitInput {
-    lieOpen      :: Event ()
-  , lieUpgrade   :: Event ()
-  , lieMessage   :: Event String
-  , libSoftLimit :: Behavior Int
-  , libHardLimit :: Behavior Int
-  }
-```
-
-Then we'll write three components.
-
-One of them is for use with the plebian accounts:
-```haskell
-handleLimitPlebian :: MonadMoment m => LimitInput -> m LimitEvents
-handleLimitPlebian (LimitInput _ _ eMessage bSoftLimit bHardLimit) = do
-  bLines <- accumB 0 ((+ 1) <$ eMessage)
-
-  let
-    bSoft = softLimitCheck <$> bSoftLimit <*> bLines
-    bHard = hardLimitCheck <$> bHardLimit <*> bLines
-    eSoftLimitReached = () <$ whenE bSoft eMessage
-    eHardLimitReached = () <$ whenE bHard eMessage
-
-  return $ LimitEvents eSoftLimitReached eHardLimitReached
-```
-
-One of them is for use with the premium accounts:
-```haskell
-handleLimitPremium :: MonadMoment m => LimitInput -> m LimitEvents
-handleLimitPremium _ =
-  return $ LimitEvents never never
-```
-
-The last of them is used to switch between the two:
-```haskell
-handleLimit :: MonadMoment m => LimitInput -> m LimitEvents
-handleLimit li@(LimitInput eOpen eUpgrade _ _ _) = do
-  LimitEvents eSoftPlebian eHardPlebian <- handleLimitPlebian li
-  LimitEvents eSoftPremium eHardPremium <- handleLimitPremium li
-
-  eSoftLimitReached <- switchE . leftmost $ [
-      eSoftPlebian <$ eOpen
-    , eSoftPremium <$ eUpgrade
-    ]
-
-  eHardLimitReached <- switchE . leftmost $ [
-      eHardPlebian <$ eOpen
-    , eHardPremium <$ eUpgrade
-    ]
-
-  return $ LimitEvents eSoftLimitReached eHardLimitReached
-```
-
-### Using a typeclass for switching
-
-We can make this a bit more convenient by introducing a typeclass to help us with switching:
-```haskell
-class Switch a where
-  switch :: MonadMoment m => a -> Event a -> m a
-```
-
-We provide instances for behaviors:
-```haskell
-instance Switch (Behavior a) where
-  switch = switchB
-```
-and for events:
-```haskell
-instance Switch (Event a) where
-  switch _ = switchE
-```
-
-We also provide a convenience function:
-```haskell
-switchAp :: (Switch b, MonadMoment m) 
-         => (a -> b) -> a -> Event a -> m b
-switchAp f a e = 
-  switch (f a) (f <$> e)
-```
-
-We make use of these to provide an instance for `LimitEvents`
-```haskell
-instance Switch LimitEvents where
-  switch e ee = 
-    LimitEvents <$> 
-      switchAp lieSoftLimit e ee <*> 
-      switchAp lieHardLimit e ee
-```
-
-This makes our component easier to write and easier to read:
-```haskell
--- see Part3.Account.Example6
-emptyLimitEvents :: LimitEvents
-emptyLimitEvents =
-  LimitEvents never never
-
-handleLimit :: MonadMoment m => LimitInput -> m LimitEvents
-handleLimit li@(LimitInput eOpen eUpgrade _ _ _) = do
-  plebianEvents <- handleLimitPlebian li
-  premiumEvents <- handleLimitPremium li
-
-  switch emptyLimitEvents . leftmost $ [
-      plebianEvents <$ eOpen
-    , premiumEvents <$ eUpgrade
-    ]
-```
-
-We still need to provide an initial object, but that is fine.
-Sometimes we'll be working with objects that contain behaviors as well as events, and in those cases we'll need that initial object in order to give the behaviors their initial values.
-
-This would change if `switchE` took an initial event to use before the first firing.
-
-The `Switch` instance for `Event` would change to match:
-```haskell
-instance Switch (Event a) where
-  switch = switchE
-```
-and we'd no longer need to use `eOpen` to get things started:
-```haskell
-  switch plebianEvents (premiumEvents <$ eUpgrade)
-```
-
-### Using `observeE` and `execute`
-
-```haskell
-handleLimit :: MonadMoment m => LimitInput -> m LimitEvents
-handleLimit li@(LimitInput eOpen eUpgrade _ _ _) = do
-  plebianEvents <- handleLimitPlebian li
-  premiumEvents <- handleLimitPremium li
-
-  switch emptyLimitEvents . leftmost $ [
-      plebianEvents <$ eOpen
-    , premiumEvents <$ eUpgrade
-    ]
+makePrisms ''LimitInputCmd
+
+instance Fannable () LimitInputCmd where
+  type Fanned () LimitInputCmd = LimitInput
+  fanInput eIn =
+    LimitInput <$>
+      fanE _LLimitUp eIn <*>
+      fanE _LLimitDown eIn
 ```
 
 ```haskell
-handleLimit :: LimitInput -> Moment LimitEvents
-handleLimit li@(LimitInput eOpen eUpgrade _ _ _) = do
-  let
-    plebianEvents = handleLimitPlebian li
-    premiumEvents = handleLimitPremium li
+data LimitOutputEvent =
+    LLimit Int
+  deriving (Eq, Ord, Show)
 
-  switch emptyLimitEvents . observeE . leftmost $ [
-      plebianEvents <$ eOpen
-    , premiumEvents <$ eUpgrade
-    ]
+makePrisms ''LimitOutputEvent
+
+data LimitOutputCmd = LimitOutputCmd {
+    locbLimit :: Int
+  , loceLimit :: [LimitOutputEvent]
+  } deriving (Eq, Ord, Show)
+
+makeLenses ''LimitOutputCmd
+
+instance Mergable Int LimitOutputEvent where
+  type ToMerge Int LimitOutputEvent = LimitOutput
+  mergeOutput eSample (LimitOutput eLimit bLimit) =
+    unionWith combineResult
+      (mergeE bLimit _LLimit eLimit)
+      (mergeB bLimit eSample)
 ```
 
-TODO update refactoring and behaviors to reflect the new typeclasses and code structure
-TODO once interpret is introduced, start using testNetwork in doctests for the various networks
-TODO - although this requires that we have the ability to fan in and fan out our events
-TODO - also means we have to be able to deal with behaviors going in and out of these things
+### Testing `handleMessage`
 
-TODO clean up earlier mentions of pruning the network and GC - maybe recast in terms of blocks you can dynamically chose to be involved with the network to various degrees
-TODO mention timing issues with an open event, how that comes from the missing argument in switchE
-TODO mention onceE in other systems - is onceE e = switchE e (never <$ e)?
-
-TODO mention the momentio version of interpret back where interpret first came up
-TODO possibly a typeclass to include things in the graph, abstract over observeE and execute
-TODO possibly something similar for testing
-
-TODO change Next up to link to a post on GC in reactive-banana
+TODO talk about how we test handleMessage, se we can see what happens with behaviors in the inputs
 
 ```haskell
-handleLimit :: LimitInput -> MomentIO LimitEvents
-handleLimit li@(LimitInput eOpen eUpgrade _ _ _) = do
-  let
-    plebianEvents = handleLimitPlebian li
-    premiumEvents = handleLimitPremium li
+data MessageInputEvent =
+    MMessage String
+  | MLimit Int
+  deriving (Eq, Ord, Show)
 
-  switchedLimitEvents <- execute . leftmost $ [
-      plebianEvents <$ eOpen
-    , premiumEvents <$ eUpgrade
-    ]
+makePrisms ''MessageInputEvent
 
-  switch emptyLimitEvents switchedLimitEvents
+data MessageInputCmd = MessageInputCmd {
+    _micbLimit :: Int
+  , _micEvent :: MessageInputEvent
+  } deriving (Eq, Ord, Show)
+
+makeLenses ''MessageInputCmd
+
+instance Fannable Int MessageInputEvent where
+  type Fanned Int MessageInputEvent = MessageInput
+  fanInput eIn =
+    MessageInput <$>
+      fanE _MMessage eIn <*>
+      fanE _MLimit eIn <*>
+      fanB 0 id eIn
+
+data MessageOutputCmd =
+  MWrite String
+  deriving (Eq, Ord, Show)
+
+makePrisms ''MessageOutputCmd
+
+instance Mergable () MessageOutputCmd where
+  type ToMerge () MessageOutputCmd = MessageOutput
+  mergeOutput _ (MessageOutput eWrite) =
+    mergeE (pure ()) _MWrite eWrite
 ```
-
-### Other variations
-
-There are a few variations on this that might be interesting to play with.
-
-The first would be change the system from quitting when the hard limit is reached to just not accepting any more messages.
-This would allow the users to either upgrade and continue or quit on their own terms once the limit was reached.
-
-The second variation would be to start users off with a number of credits which are used when messages are sent, with a warning when credits are low and with messages not being processed once they have run out.
-Just don't tell the people from marketing.
-
+-->
 ## Next up
 
 Now that we have some idea of what we can do with behaviors, we're going to start putting together some of the pieces we'll end up using in our chat server.
 
 We'll begin by putting together all of the pieces that we can inside of a command line application, in order to introduce one or two more tricks.
 
-[Onwards!](./chat/cmd.html)
+[Onwards!](./components.html)

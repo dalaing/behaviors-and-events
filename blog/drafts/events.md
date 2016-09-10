@@ -20,6 +20,8 @@ which has a `Functor` instance:
 instance Functor Event where ...
 ```
 
+The documentation mentions that the semantics of an `Event a` allows you to view it as being similar to `[(Time, a)]`.
+
 ## Simultaneous `Event`s
 
 The `Functor` instance provides a good example of how we can end up with multiple events happening at the same time originating from the _inside_ of our event network.
@@ -152,7 +154,7 @@ In `reactive-banana` this context is provided by the `Moment` and `MomentIO` mon
 That context is used to build up and alter the event network.
 If you see these in the signature of a function, it usually means that you're dealing with something that is going to have an effect outside of the current moment in logical time.
 
-The `fromAddHandler` function adds inputs into the event network by registering and event handler:
+The `fromAddHandler` function adds inputs into the event network by registering an event handler:
 ```haskell
 fromAddHandler :: AddHandler a -> MomentIO (Event a) 
 ```

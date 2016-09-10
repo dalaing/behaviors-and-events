@@ -9,7 +9,7 @@ Portability : non-portable
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Part3.Common.Testing (
+module Part4.Common.Testing (
     Testable(..)
   , Fannable(..)
   , Command(..)
@@ -30,7 +30,7 @@ import Control.Lens
 import Reactive.Banana
 import Reactive.Banana.Frameworks
 
-import Part3.Common.Util
+import Part4.Common.Util
 
 class MonadMoment m => Testable m where
   interpretEvents :: (Event a -> m (Event b)) -> [Maybe a] -> IO [Maybe b]
