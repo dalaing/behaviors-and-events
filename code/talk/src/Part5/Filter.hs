@@ -34,7 +34,9 @@ networkDescription (InputIO eOpen eRead) = mdo
     -- bNames = pure . S.fromList $ ["root", "admin"]
   bNames <- accumB (S.fromList ["root", "admin"]) (S.insert <$> eName)
 
-  NameOutput enWrite eName <- handleName $ NameInput eOpen enRead bGreeting bNames
+  let
+    enRead = whenE ((== NamePrompting) <$> bPhase) eRead
+  NameOutput enWrite enNotify eName <- handleName $ NameInput eOpen enRead bGreeting bNames
 
   bPhase <- stepper PreOpen . leftmost $ [
       NamePrompting <$ eOpen
@@ -51,14 +53,16 @@ networkDescription (InputIO eOpen eRead) = mdo
   -- alternative: handleCommand returns (a -> m b), fmap over eName :: Event a and observe
   -- - can use that to set up a pure behavior for the name
   -- what do all of these look like when you change the nickname?
-  CommandOutput ecWrite eClose ecNotify _ <- handleCommand Stream $ CommandInput eName ecRead ecNotify bNames bName
-
   let
-    enRead = whenE ((== NamePrompting) <$> bPhase) eRead
     ecRead = whenE ((== CommandProcessing) <$> bPhase) eRead
+  CommandOutput ecWrite eClose ecNotify eFetch _ <- handleCommand $ CommandInput ecRead bNames bName
 
   let
-    eWrite = leftmost [enWrite, ecWrite]
+    eNotify = leftmost [enNotify, ecNotify]
+  NotificationOutput enoWrite <- handleNotification Stream $ NotificationInput bName eFetch eNotify
+
+  let
+    eWrite = leftmost [enWrite, ecWrite, enoWrite]
   return $ OutputIO eWrite eClose
 
 go_5_f :: IO ()

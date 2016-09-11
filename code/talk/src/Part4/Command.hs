@@ -13,12 +13,13 @@ module Part4.Command (
 
 import           Reactive.Banana
 
-import           Part4.Command.Types
 import           Part4.Command.Domain
+import           Part4.Command.Types
+import           Part4.Common.Util
+import           Part4.Types
 
-import           Part4.Types.Notification
-
-handleCommand :: NotificationType -> CommandInput -> Moment CommandOutput
-handleCommand nt ci = do
-  d <- pureCommandNetworkDescription nt . fanOut $ ci
+handleCommand :: CommandInput -> Moment CommandOutput
+handleCommand ci = do
+  d <- pureCommandNetworkDescription . fanOut $ ci
   return $ fanIn d
+

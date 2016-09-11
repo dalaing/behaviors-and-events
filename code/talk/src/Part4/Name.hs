@@ -11,14 +11,16 @@ module Part4.Name (
   , handleName
   ) where
 
-import Data.List (intercalate)
+import           Data.List                     (intercalate)
 
-import qualified Data.Set              as S
+import qualified Data.Set                      as S
 
 import           Reactive.Banana
 
+import           Part4.Command.Components.Open
 import           Part4.Common
 import           Part4.Types.NameError
+import           Part4.Types.Notification
 
 data NameInput = NameInput {
     nieOpen     :: Event ()
@@ -28,8 +30,9 @@ data NameInput = NameInput {
   }
 
 data NameOutput = NameOutput {
-    noeWrite :: Event String
-  , noeName  :: Event String
+    noeWrite        :: Event String
+  , noeNotification :: Event Notification
+  , noeName         :: Event String
   }
 
 mkGreeting :: String -> String -> String
@@ -56,4 +59,6 @@ handleName (NameInput eOpen eRead bGreeting bNames) = do
       , eNameErrorMessage
       ]
 
-  return $ NameOutput eWrite eNameValid
+  OpenOutput eNotify <- handleOpen $ OpenInput eNameValid
+
+  return $ NameOutput eWrite eNotify eNameValid

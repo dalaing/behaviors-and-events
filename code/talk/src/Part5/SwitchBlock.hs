@@ -11,7 +11,7 @@ module Part5.SwitchBlock (
   , go_5_sb
   ) where
 
-import Control.Monad
+import           Control.Monad
 
 import qualified Data.Set                   as S
 
@@ -31,6 +31,7 @@ data OutputWrapper = OutputWrapper {
   , owClose  :: Event ()
   , owName   :: Event String
   , owNotify :: Event Notification
+  , owFetch  :: Event ()
   , owKick   :: Event String
   }
 
@@ -41,15 +42,16 @@ instance Switch OutputWrapper where
       switchAp owClose e ee <*>
       switchAp owName e ee <*>
       switchAp owNotify e ee <*>
+      switchAp owFetch e ee <*>
       switchAp owKick e ee
 
 wrapName :: NameOutput -> OutputWrapper
-wrapName (NameOutput eWrite eName) =
-  OutputWrapper eWrite never eName never never
+wrapName (NameOutput eWrite eNotify eName) =
+  OutputWrapper eWrite never eName eNotify never never
 
 wrapCmd :: CommandOutput -> OutputWrapper
-wrapCmd (CommandOutput eWrite eClose eNotify eKick) =
-  OutputWrapper eWrite eClose never eNotify eKick
+wrapCmd (CommandOutput eWrite eClose eNotify eFetch eKick) =
+  OutputWrapper eWrite eClose never eNotify eFetch eKick
 
 networkDescription :: InputIO -> Moment OutputIO
 networkDescription (InputIO eOpen eRead) = mdo
@@ -57,23 +59,28 @@ networkDescription (InputIO eOpen eRead) = mdo
     bGreeting = pure "Welcome to the chat server."
   bNames <- accumB (S.fromList ["root", "admin"]) (S.insert <$> eName)
 
-  -- the recursive use of eNotify is not working
-  -- we're also doing observe-then-switch
+  eName <- switch eowName (never <$ eowName)
+
+  -- we're doing observe-then-switch
   -- would be nice to switch-then-observe
 
   let
     nameBlock = fmap wrapName . handleName $ NameInput eOpen eRead bGreeting bNames
-    cmdBlock = fmap wrapCmd . handleCommand Stream $ CommandInput eName eRead eNotify bNames bName
+    cmdBlock = fmap wrapCmd . handleCommand $ CommandInput eRead bNames bName
 
   -- switch and then observeE means we need a switch returning (Event (Moment a)), from which we'll get a
   -- Moment a
   -- observeE and then switch is easier to deal with
 
-  OutputWrapper eWrite eClose eName eNotify eKick <- join $ switch nameBlock (cmdBlock <$ eName)
+  OutputWrapper eowWrite eClose eowName eNotify eFetch eKick <- join $ switch nameBlock (cmdBlock <$ eName)
 
   bName <- stepper "" eName
 
-  -- this has a problem with eName coming through because it is used with the switch..
+  NotificationOutput enoWrite <- handleNotification Stream $ NotificationInput bName eFetch eNotify
+
+  let
+    eWrite = leftmost [eowWrite, enoWrite]
+
   return $ OutputIO eWrite eClose
 
 

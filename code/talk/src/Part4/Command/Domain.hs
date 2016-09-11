@@ -19,7 +19,6 @@ import           Safe
 
 import           Reactive.Banana
 
-import           Part4.Command.Components.Open
 import           Part4.Command.Components.Message
 import           Part4.Command.Components.Kick
 import           Part4.Command.Components.Tell
@@ -33,15 +32,13 @@ import           Part4.Types.Notification
 import           Part4.Types.PrivateMessage
 
 data DomainInput = DomainInput {
-    dieOpen    :: Event User
-  , dieFetch   :: Event ()
+    dieFetch   :: Event ()
   , dieMessage :: Event Message
   , dieTell    :: Event PrivateMessage
   , dieKick    :: Event User
   , dieHelp    :: Event ()
   , dieQuit    :: Event ()
   , dieUnknown :: Event String
-  , dieNotify  :: Event Notification
   , dibNames   :: Behavior (S.Set User)
   , dibName    :: Behavior User
   }
@@ -50,6 +47,7 @@ data DomainOutput = DomainOutput {
     doeWrite    :: [Event String]
   , doeClose    :: [Event ()]
   , doeNotifies :: [Event Notification]
+  , doeFetch    :: Event ()
   , doeKick     :: Event User
   }
 
@@ -59,7 +57,7 @@ splitFirstWord s = maybe ("", "") f . headMay . words $ s
     f r = (r, drop (1 + length r) s)
 
 fanOut :: CommandInput -> DomainInput
-fanOut (CommandInput eOpen eRead eNotify bNames bName) =
+fanOut (CommandInput eRead bNames bName) =
   let
     eReadNonEmpty =
       filterE (not . null) eRead
@@ -96,22 +94,20 @@ fanOut (CommandInput eOpen eRead eNotify bNames bName) =
     eUnknown =
       (\(x,y) -> unwords [x, y]) <$> filterE ((`notElem` commands) . fst) eWords
   in
-    DomainInput eOpen eFetch eMessage eTell eKick eHelp eQuit eUnknown eNotify bNames bName
+    DomainInput eFetch eMessage eTell eKick eHelp eQuit eUnknown bNames bName
 
 fanIn :: DomainOutput -> CommandOutput
-fanIn (DomainOutput eWrites eCloses eNotifies eKick) =
+fanIn (DomainOutput eWrites eCloses eNotifies eFetch eKick) =
   let
     addLine x y = x ++ '\n' : y
     eCombinedWrites = foldr (unionWith addLine) never eWrites
     eCombinedCloses = () <$ leftmost eCloses
     eNotify = leftmost eNotifies
   in
-    CommandOutput eCombinedWrites eCombinedCloses eNotify eKick
+    CommandOutput eCombinedWrites eCombinedCloses eNotify eFetch eKick
 
-pureCommandNetworkDescription :: MonadMoment m => NotificationType -> DomainInput -> m DomainOutput
-pureCommandNetworkDescription nt di = do
-  OpenOutput eoNotify <- handleOpen $ OpenInput (dieOpen di)
-  NotificationOutput enWrite <- handleNotification nt $ NotificationInput (dibName di) (dieFetch di) (dieNotify di)
+pureCommandNetworkDescription :: MonadMoment m => DomainInput -> m DomainOutput
+pureCommandNetworkDescription di = do
   MessageOutput emNotify <- handleMessage $ MessageInput (dibName di) (dieMessage di)
   TellOutput etNotify etWrite <- handleTell $ TellInput (dibNames di) (dibName di) (dieTell di)
   KickOutput eKickValid ekNotify ekWrite <- handleKick $ KickInput (dibNames di) (dibName di) (dieKick di)
@@ -121,8 +117,7 @@ pureCommandNetworkDescription nt di = do
 
   let
     eWrites = [
-        enWrite
-      , etWrite
+        etWrite
       , ekWrite
       , ehWrite
       , euWrite
@@ -131,10 +126,11 @@ pureCommandNetworkDescription nt di = do
         eqClose
       ]
     eNotifies = [
-        eoNotify
-      , emNotify
+        emNotify
       , etNotify
       , ekNotify
       , eqNotify
       ]
-  return $ DomainOutput eWrites eCloses eNotifies eKickValid
+    eFetch =
+      dieFetch di
+  return $ DomainOutput eWrites eCloses eNotifies eFetch eKickValid

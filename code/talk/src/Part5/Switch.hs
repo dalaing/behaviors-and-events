@@ -20,7 +20,7 @@ instance Switch (Event a) where
     f1 <- stepper Just (const Nothing <$ ee)
     f2 <- stepper (const Nothing) (Just <$ ee)
     e2 <- switchE ee
-    return . filterJust $ unionWith const (f1 <@> e1) (f2 <@> e2)
+    return $ unionWith (\_ x -> x) (filterJust $ f1 <@> e1) (filterJust $ f2 <@> e2)
 
 instance Switch (Behavior a) where
   switch = switchB

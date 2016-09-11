@@ -36,29 +36,50 @@ instance Switch OutputIO where
       switchAp ioeWrite e ee <*>
       switchAp ioeClose e ee
 
-networkDescription :: InputIO -> Moment OutputIO
+instance Switch CommandOutput where
+  switch e ee =
+    CommandOutput <$>
+      switchAp coeWrite e ee <*>
+      switchAp coeClose e ee <*>
+      switchAp coeNotify e ee <*>
+      switchAp coeFetch e ee <*>
+      switchAp coeKick e ee
+
+data Phase =
+    PreOpen
+  | NamePrompting
+  | CommandProcessing
+  deriving (Eq, Ord, Show)
+
+networkDescription :: InputIO -> MomentIO OutputIO
 networkDescription (InputIO eOpen eRead) = mdo
   let
     bGreeting = pure "Welcome to the chat server."
   bNames <- accumB (S.fromList ["root", "admin"]) (S.insert <$> eName)
 
+  eName <- switch enName (never <$ enName)
+
   let
-    emptyInput = InputIO never never
-    regularInput = InputIO eOpen eRead
+    enRead = whenE ((== NamePrompting) <$> bPhase) eRead
+  NameOutput enWrite enNotify enName <- liftMoment . handleName $ NameInput eOpen enRead bGreeting bNames
 
-  (InputIO enOpen enRead) <- switch regularInput (emptyInput <$ eName)
-  (InputIO _ ecRead)      <- switch emptyInput   (regularInput <$ eName)
-
-  NameOutput enWrite eName <- handleName $ NameInput enOpen enRead bGreeting bNames
-
+  bPhase <- stepper PreOpen . leftmost $ [
+      NamePrompting <$ eOpen
+    , CommandProcessing <$ eName
+    ]
   bName <- stepper "" eName
 
-  -- this has a problem with eName coming through because it is used with the switch..
-  CommandOutput ecWrite ecClose ecNotify _ <- handleCommand Stream $ CommandInput eName ecRead ecNotify bNames bName
+  let
+    ecRead = whenE ((== CommandProcessing) <$> bPhase) eRead
+  CommandOutput ecWrite ecClose ecNotify  eFetch _ <- liftMoment . handleCommand $ CommandInput ecRead bNames bName
 
   let
-    nameOut = OutputIO enWrite never
-    cmdOut = OutputIO ecWrite ecClose
+    eNotify = leftmost [enNotify, ecNotify]
+  NotificationOutput enoWrite <- handleNotification Stream $ NotificationInput bName eFetch eNotify
+
+  let
+    nameOut = OutputIO (leftmost [enWrite, enoWrite]) never
+    cmdOut = OutputIO (leftmost [ecWrite, enoWrite]) ecClose
 
   switch nameOut (cmdOut <$ eName)
 

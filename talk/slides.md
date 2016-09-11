@@ -21,7 +21,11 @@
 
 ##
 
-What does it give us: composable systems of time-varying state and logic.
+What does it give us?
+
+##
+
+Composable systems of time-varying state and logic.
 
 ##
 
@@ -40,7 +44,7 @@ Worth looking at `sodium` if you want this goodness in an other-than-Haskell fla
 ##
 
 ```haskell
-Event a
+data Event a = ...
 ```
 
 ```haskell
@@ -49,7 +53,7 @@ instance Functor Event
 
 ##
 
-Events fire at single logical points in time.
+Events fire at infinitely-thin logical points in time.
 
 ##
 
@@ -71,62 +75,183 @@ There can be multiple different events active at the same logical point in time.
 
 ## 
 
-Outputs active at the same points in time as the inputs:
+The `Functor` instance demonstrates this.
 
-```haskell
-doubler :: Event Int -> Event Int
-doubler eNumber =
-  let
-    eOtherNumber = (* 2) <$> eNumber
-  in
-    eOtherNumber
-```
+## 
+
+The output of `fmap` is active at the same points in time as the input.
 
 ##
 
-There are ways of filtering and splitting events:
+\colsbegin
+
+\column{.5\textwidth}
+
+```haskell
+flipper :: Event Colour 
+        -> Event Colour
+flipper eInput =
+  let
+    eOutput = 
+      flip <$> eInput
+  in
+    eOutput
+```
+\column{.5\textwidth}
+
+![](../images/fmap-flip.png)\
+
+\colsend
+
+##
+
+\colsbegin
+
+\column{.5\textwidth}
+
+```haskell
+blue :: Event Colour 
+     -> Event Colour
+blue eInput =
+  let
+    eOutput = 
+      Blue <$ eInput
+  in
+    eOutput
+```
+\column{.5\textwidth}
+
+![](../images/fmap-const.png)\
+
+\colsend
+
+##
+
+There are functions to filter and split events.
+
+##
+
+The outputs are active at the same points in time as the inputs - when the outputs are active at all.
+
+##
 
 ```haskell
 filterE :: (a -> Bool) -> Event a -> Event a
-split :: Event (Either a b) -> (Event a, Event b)
--- ... and more that we'll see later
 ```
 
-##
+\colsbegin
 
-Outputs active at the same points in time as the inputs - when the outputs are active at all:
+\column{.5\textwidth}
 
 ```haskell
-commands :: Event String -> (Event String, Event ())
-commands eLine =
+red :: Event Colour 
+    -> Event Colour
+red eInput =
   let
-    eMessage = filterE (/= "/quit") eLine
-    eQuit    = filterE (== "/quit") eLine
+    eOutput = 
+      filterE isRed eInput
   in
-    (eMessage, eQuit)
+    eOutput
+```
+\column{.5\textwidth}
+
+![](../images/filterE.png)\
+
+\colsend
+
+##
+
+```haskell
+split :: Event (Either a b) -> (Event a, Event b)
 ```
 
-##
+\colsbegin
 
-We need to be aware of the potential for simultaneous events when we combine them
+\column{.5\textwidth}
 
-##
-
-The combining function is only used if the two inputs events are simultaneous:
 ```haskell
-unionWith :: (a -> a -> a) 
-          -> Event a 
-          -> Event a 
+type C = Colour
+splitter :: Event (Either C C)
+         -> (Event C, Event C)
+splitter eInput =
+  let
+    eOutput = 
+      split eInput
+  in
+    eOutput
+```
+\column{.5\textwidth}
+
+![](../images/split.png)\
+
+\colsend
+
+##
+
+We need to be aware of the potential for simultaneous events when we combine them.
+
+##
+
+```haskell
+unionWith :: (a -> a -> a) -> Event a -> Event a 
           -> Event a
 ```
 
+\colsbegin
+
+\column{.5\textwidth}
+
+```haskell
+mixer :: Event Colour
+      -> Event Colour
+      -> Event Colour
+mixer eInput1 eInput2 =
+  let
+    eOutput = 
+      unionWith 
+        mix 
+        eInput1 
+        eInput2
+  in
+    eOutput
+```
+\column{.5\textwidth}
+
+![](../images/unionWith.png)\
+
+\colsend
+
 ##
 
-Can build a useful helper from this if you know you're not dealing with simultaneous events:
+We can build a useful helper from this if you know you're not dealing with simultaneous events or if there is a clear priority between them.
+
+##
+
 ```haskell
 leftmost :: [Event a] -> Event a
 leftmost = foldl (unionWith const) never
 ```
+
+\colsbegin
+
+\column{.5\textwidth}
+
+```haskell
+lister :: [Event Colour]
+       -> Event Colour
+lister eInput =
+  let
+    eOutput = 
+      leftmost 
+        eInput
+  in
+    eOutput
+```
+\column{.5\textwidth}
+
+![](../images/leftmost.png)\
+
+\colsend
 
 ##
 
@@ -134,6 +259,12 @@ There are other options for composing events:
 ```haskell
 unions :: [Event (a -> a)] -> Event (a -> a)
 ```
+which we'll look at later.
+
+##
+
+Let's do something significant with this.
+
 ##
 
 ```haskell
@@ -146,10 +277,7 @@ importantWork eCount =
   let
     eFizz = "Fizz" <$ multiple 3 eCount
     eBuzz = "Buzz" <$ multiple 5 eCount
-    eFizzBuzz = 
-      unionWith (\_ _ -> "FizzBuzz") 
-      eFizz 
-      eBuzz
+    eFizzBuzz = unionWith (++) eFizz eBuzz
   in
     eFizzBuzz
 ```
@@ -172,7 +300,15 @@ You'll see a `Moment` or `MomentIO` context in the type signature.
 
 ##
 
+`Moment`/`MomentIO` is a builder monad for the event network.
+
+##
+
 These 'moments' are referred to as 'transactions' in the `sodium` literature.
+
+##
+
+We need a way to build a bridge between the 'inside' and 'outside' of an event network.
 
 ##
 
@@ -227,10 +363,7 @@ networkDescription c = do
   let
     eFizz = "Fizz" <$ multiple 3 eCount
     eBuzz = "Buzz" <$ multiple 5 eCount
-    eWrite =
-      unionWith (\_ _ -> "FizzBuzz")
-      eFizz
-      eBuzz
+    eWrite = unionWith (++) eFizz eBuzz
     showCount x =
       putStrLn $ "count: " ++ show x
 
@@ -284,32 +417,167 @@ eventLoop e =
 ##
 
 ```haskell
-accumE :: MonadMoment m => a -> Event (a -> a) -> m (Event a) 
+accumE :: MonadMoment m 
+       => a 
+       -> Event (a -> a) 
+       -> m (Event a) 
+```
+
+## 
+
+\colsbegin
+
+\column{.5\textwidth}
+
+```haskell
+toggler :: MonadMoment m 
+        => Event ()
+        -> m (Event Colour)
+toggler eInput = do
+  eOutput <- 
+    accumE Red (flip <$ eInput)
+  return eOutput
+```
+\column{.5\textwidth}
+
+![](../images/accumE-flip.png)\
+
+\colsend
+
+##
+
+\colsbegin
+
+\column{.5\textwidth}
+
+```haskell
+counter :: MonadMoment m 
+        => Event () 
+        -> m (Event Int)
+counter eInc = do
+  eOutput <- 
+    accumE 0 ((+ 1) <$ eInc)
+  return eOutput
+```
+
+\column{.5\textwidth}
+
+![](../images/accumE-count.png)\
+
+\colsend
+
+##
+
+This is a good place to compare `leftmost` and `unions`.
+
+## 
+
+\colsbegin
+
+\column{.5\textwidth}
+
+```haskell
+counter2 :: MonadMoment m 
+         => Event () 
+         -> Event () 
+         -> m (Event Int)
+counter2 eInc eDouble = do
+  eOutput <- 
+    accumE 0 $ lefmost [
+        (+ 1) <$ eInc
+      , (* 2) <$ eDouble
+      ]
+  return eOutput
+```
+
+\column{.5\textwidth}
+
+![](../images/accumE-count-leftmost.png)\
+
+\colsend
+
+## 
+
+\colsbegin
+
+\column{.5\textwidth}
+
+```haskell
+counter3 :: MonadMoment m 
+         => Event () 
+         -> Event () 
+         -> m (Event Int)
+counter3 eInc eDouble = do
+  eOutput <- 
+    accumE 0 $ unions [
+        (+ 1) <$ eInc
+      , (* 2) <$ eDouble
+      ]
+  return eOutput
+```
+
+\column{.5\textwidth}
+
+![](../images/accumE-count-unions.png)\
+
+\colsend
+
+##
+
+Let's put that to use.
+
+##
+
+```haskell
+networkDescription :: EventSource Int -> MomentIO ()
+networkDescription c = do
+  eCount <- fromAddHandler . addHandler $ c
+
+
+
+  let
+    eFizz = "Fizz" <$ multiple 3 eCount
+    eBuzz = "Buzz" <$ multiple 5 eCount
+    eWrite = unionWith (++) eFizz eBuzz
+    showCount x =
+      putStrLn $ "count: " ++ show x
+
+  reactimate $ showCount <$> eCount
+  reactimate $ putStrLn  <$> eWrite
 ```
 
 ##
 
 ```haskell
-counter :: MonadMoment m => Event () -> m (Event Int)
-counter eTick = accumE 0 ((+ 1) <$ eTick)
-```
-
-##
-
-```haskell
-networkDescription :: EventSource () -> MomentIO ()
+networkDescription :: EventSource ()  -> MomentIO ()
 networkDescription t = do
-  eTick <- fromAddHandler . addHandler $ t
+  eTick  <- fromAddHandler . addHandler $ t
+
+
+
+  let
+    eFizz = "Fizz" <$ multiple 3 eCount
+    eBuzz = "Buzz" <$ multiple 5 eCount
+    eWrite = unionWith (++) eFizz eBuzz
+    showCount x =
+      putStrLn $ "count: " ++ show x
+
+  reactimate $ showCount <$> eCount
+  reactimate $ putStrLn  <$> eWrite
+```
+##
+
+```haskell
+networkDescription :: EventSource ()  -> MomentIO ()
+networkDescription t = do
+  eTick  <- fromAddHandler . addHandler $ t
 
   eCount <- accumE 0 ((+ 1) <$ eTick)
 
   let
     eFizz = "Fizz" <$ multiple 3 eCount
     eBuzz = "Buzz" <$ multiple 5 eCount
-    eWrite =
-      unionWith (\_ _ -> "FizzBuzz")
-      eFizz
-      eBuzz
+    eWrite = unionWith (++) eFizz eBuzz
     showCount x =
       putStrLn $ "count: " ++ show x
 
@@ -487,7 +755,7 @@ Variant: Deal with unknown commands
 
     eWrite = leftmost [
       ...
-      , unknownMessage <$ eUnknown
+      , unknownMessage <$> eUnknown
       ...
       ]
 ...
@@ -531,7 +799,9 @@ handleOutput (OutputIO eWrite eClose) = do
 ##
 
 ```haskell
-mkNetwork :: (InputIO -> Moment OutputIO) -> InputSources -> MomentIO ()
+mkNetwork :: (InputIO -> Moment OutputIO) 
+          -> InputSources 
+          -> MomentIO ()
 mkNetwork fn input = do
   i <- handleInput input
   o <- liftMoment $ fn i
@@ -824,7 +1094,7 @@ domainNetworkDescription input = do
 ##
 
 ```haskell
-Behavior a
+data Behavior a = ...
 ```
 
 ```haskell
@@ -844,11 +1114,11 @@ Behavior a ~ (Time -> a)
 
 ##
 
-Behaviors are pull-based.
+If you squint, it looks a bit like `State a`.
 
 ##
 
-If you squint, it looks a bit like `State a`.
+Behaviors are pull-based.
 
 ##
 
@@ -860,27 +1130,39 @@ Some of the time you'll use `Behavior` to pass around values that could be chang
 
 ##
 
-Build `Behavior`s with `Event`s:
+We build `Behavior`s with `Event`s.
+
 ```haskell
-stepper :: MonadMoment m => a -> Event a -> m (Behavior a)
+stepper :: MonadMoment m 
+        => a 
+        -> Event a 
+        -> m (Behavior a)
 ```
 
 ##
 
+\colsbegin
+
+\column{.5\textwidth}
+
 ```haskell
-logInHandler :: Event () 
-             -> Event () 
-             -> Moment (Behavior LogInState)
-logInHandler eLogIn eLogOut =
-  stepper LoggedOut . leftmost $ [
-      LoggedIn  <$ eLogIn
-    , LoggedOut <$ eLogOut
-    ]
+holder :: MonadMoment m 
+       => Event Colour 
+       -> m (Behavior Colour)
+holder eInput = do
+  eOutput <-
+    stepper Blue eInput
+  return eOutput
 ```
+\column{.5\textwidth}
+
+![](../images/stepper.png)\
+
+\colsend
 
 ##
 
-Sample `Behavior`s with `Event`s:
+We sample `Behavior`s with `Event`s:
 ```haskell
 (<@>) :: Behavior (a -> b) -> Event a -> Event b
 (<@)  :: Behavior b        -> Event a -> Event b 
@@ -895,13 +1177,97 @@ threeArgFn <$> bBehavior1 <*> bBehavior2 <@> eEvent
 ```haskell
 twoArgFn   <$> bBehavior1 <*> bBehavior2 <@ eTrigger
 ```
+##
+
+\colsbegin
+
+\column{.5\textwidth}
+
+```haskell
+mixer :: Behavior Colour 
+      -> Event Colour
+      -> Event Colour
+mixer bInput eInput =
+  let
+    eOutput = 
+      mix <$> 
+        bInput <@> 
+        eInput
+  in
+    eOutput
+```
+\column{.5\textwidth}
+
+![](../images/sample-mix.png)\
+
+\colsend
 
 ##
 
-Filter `Event`s with `Behavior`s:
+\colsbegin
+
+\column{.5\textwidth}
+
+```haskell
+tagger :: Behavior Colour 
+       -> Event ()
+       -> Event Colour
+tagger bInput eInput =
+  let
+    eOutput = 
+      bInput <@ eInput
+  in
+    eOutput
+```
+\column{.5\textwidth}
+
+![](../images/sample-const.png)\
+
+\colsend
+
+
+##
+
+We can filter `Event`s with `Behavior`s:
 ```haskell
 whenE       :: Behavior Bool -> Event a -> Event a
 filterApply :: Behavior (a -> Bool) -> Event a -> Event a
+```
+
+##
+
+\colsbegin
+
+\column{.5\textwidth}
+
+```haskell
+sifter :: Behavior Bool 
+       -> Event Colour
+       -> Event Colour
+sifter bInput eInput =
+  let
+    eOutput = 
+      whenE bInput eInput
+  in
+    eOutput
+```
+\column{.5\textwidth}
+
+![](../images/whenE.png)\
+
+\colsend
+
+##
+
+```haskell
+logInHandler :: Event () 
+             -> Event () 
+             -> Moment (Behavior LogInState)
+logInHandler eLogIn eLogOut =
+  stepper LoggedOut . leftmost $ [
+      LoggedIn  <$ eLogIn
+    , LoggedOut <$ eLogOut
+    ]
 ```
 
 ##
@@ -962,17 +1328,97 @@ accumB :: MonadMoment m
        -> m (Behavior a) 
 ```
 
+## 
+
+\colsbegin
+
+\column{.5\textwidth}
+
+```haskell
+toggler :: MonadMoment m 
+        => Event ()
+        -> m (Behavior Colour)
+toggler eInput = do
+  eOutput <- 
+    accumB Red (flip <$ eInput)
+  return eOutput
+```
+\column{.5\textwidth}
+
+![](../images/accumB-flip.png)\
+
+\colsend
+
+## 
+
+\colsbegin
+
+\column{.5\textwidth}
+
+![](../images/accumE-flip.png)\
+
+\column{.5\textwidth}
+
+![](../images/accumB-flip.png)\
+
+\colsend
+
 ##
 
 ```haskell
 handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage) = do
-  bMessages <- accumB [] $ (\x xs -> x : xs) <$> eMessage
+  bMessages <- stepper "" eMessage
   let
-    format ms m = 
+    format l m = 
       m ++ 
-      " (previous messages: " ++ show ms ++ ")"
-    eOut = format <$> bMessages <@> eMessage
+      " (last message: " ++ l ++ ")"
+      
+
+    eOut = 
+        format <$> bMessages <@> eMessage
+        
+        
+  return $ MessageOutput eOut
+```
+
+##
+
+```haskell
+handleMessage :: MessageInput -> Moment MessageOutput
+handleMessage (MessageInput eMessage) = do
+  bMessages <- accumB [] $
+    (\x xs -> x : xs) <$> eMessage
+  let
+    format l m = 
+      m ++ 
+      " (last message: " ++ l ++ ")"
+      
+      
+    eOut = 
+        format <$> bMessages <@> eMessage
+        
+        
+  return $ MessageOutput eOut
+```
+
+##
+
+```haskell
+handleMessage :: MessageInput -> Moment MessageOutput
+handleMessage (MessageInput eMessage) = do
+  bMessages <- accumB [] $ 
+    (\x xs -> x : xs) <$> eMessage
+  let
+    format ls m = 
+      m ++ 
+      " (previous messages: " ++ show ls ++ ")"
+      
+      
+    eOut = 
+        format <$> bMessages <@> eMessage
+        
+        
   return $ MessageOutput eOut
 ```
 
@@ -985,11 +1431,92 @@ That prints a weird message when the message history is empty.
 ```haskell
 handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage) = do
-  bMessages <- accumB [] $ (\x xs -> x : xs) <$> eMessage
+  bMessages <- accumB [] $
+    (\x xs -> x : xs) <$> eMessage
   let
-    format ms m = 
+    format ls m = 
       m ++ 
-      " (previous messages: " ++ show ms ++ ")"
+      " (previous messages: " ++ show ls ++ ")"
+      
+      
+    eOut = 
+        format <$> bMessages <@> eMessage
+        
+        
+  return $ MessageOutput eOut
+```
+
+##
+
+```haskell
+handleMessage :: MessageInput -> Moment MessageOutput
+handleMessage (MessageInput eMessage) = do
+  bMessages <- accumB [] $
+    (\x xs -> x : xs) <$> eMessage
+  let
+    format ls m = 
+      m ++ 
+      " (previous messages: " ++ show ls ++ ")"
+    bHasMessages = (not . null) <$> bMessages
+      
+    eOut = 
+        format <$> bMessages <@> eMessage
+        
+        
+  return $ MessageOutput eOut
+```
+
+##
+
+```haskell
+handleMessage :: MessageInput -> Moment MessageOutput
+handleMessage (MessageInput eMessage) = do
+  bMessages <- accumB [] $
+    (\x xs -> x : xs) <$> eMessage
+  let
+    format ls m = 
+      m ++ 
+      " (previous messages: " ++ show ls ++ ")"
+    bHasMessages = (not . null) <$> bMessages
+    eMessageWithHistory = whenE bHasMessage eMessage
+    eOut = 
+        format <$> bMessages <@> eMessage
+        
+        
+  return $ MessageOutput eOut
+```
+
+##
+
+```haskell
+handleMessage :: MessageInput -> Moment MessageOutput
+handleMessage (MessageInput eMessage) = do
+  bMessages <- accumB [] $
+    (\x xs -> x : xs) <$> eMessage
+  let
+    format ls m = 
+      m ++ 
+      " (previous messages: " ++ show ls ++ ")"
+    bHasMessages = (not . null) <$> bMessages
+    eMessageWithHistory = whenE bHasMessage eMessage
+    eOut = 
+        format <$> bMessages <@> eMessageWithHistory
+
+
+  return $ MessageOutput eOut
+```
+
+##
+
+```haskell
+handleMessage :: MessageInput -> Moment MessageOutput
+handleMessage (MessageInput eMessage) = do
+  bMessages <- accumB [] $
+    (\x xs -> x : xs) <$> eMessage
+  let
+    format ls m = 
+      m ++ 
+      " (previous messages: " ++ show ls ++ ")"
     bHasMessages = (not . null) <$> bMessages
     eMessageWithHistory = whenE bHasMessage eMessage
     eOut = leftmost [
@@ -1008,12 +1535,31 @@ We should trim that history a little.
 ```haskell
 handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage) = do
-  bMessages <- accumB [] $ (\x xs -> x : xs) <$> eMessage
+  bMessages <- accumB [] $
+    (\x xs -> x : xs) <$> eMessage
   let
-    bTrimmed = take 3 <$> bMessages
-    format ms m = 
+    format ls m = 
       m ++ 
-      " (previous messages: " ++ show ms ++ ")"
+      " (previous messages: " ++ show ls ++ ")"
+    bHasMessages = (not . null) <$> bMessages
+    eMessageWithHistory = whenE bHasMessage eMessage
+    eOut = leftmost [
+        format <$> bMessages <@> eMessageWithHistory
+      , eMessage
+      ]
+  return $ MessageOutput eOut
+```
+##
+
+```haskell
+handleMessage :: MessageInput -> Moment MessageOutput
+handleMessage (MessageInput eMessage) = do
+  bMessages <- fmap (take 3) . accumB [] $
+    (\x xs -> x : xs) <$> eMessage
+  let
+    format ls m = 
+      m ++ 
+      " (previous messages: " ++ show ls ++ ")"
     bHasMessages = (not . null) <$> bMessages
     eMessageWithHistory = whenE bHasMessage eMessage
     eOut = leftmost [
@@ -1064,7 +1610,7 @@ handleLimit :: LimitInput -> Moment LimitOutput
 handleLimit (LimitInput eUp eDown) = do
   bLimit <- accumB 1 . unions $ [
       succ <$ eUp
-    , pred <$ eDown
+    , (max 0 . pred) <$ eDown
     ]
   return $ LimitOutput bLimit
 ```
@@ -1163,7 +1709,7 @@ We want to prompt the user for a nickname, and then start processing commands.
 
 We want the option to either stream notifications to the display, or to gather them all up until the user asks for them.
 
-#
+##
 
 We have a few restrictions on nicknames:
 
@@ -1172,25 +1718,385 @@ We have a few restrictions on nicknames:
 - they should not contain a '/' character, since we're using those for commands
 - they should not be the same as the nickname of any of the other users
 
+## 
 
+```haskell
+data NameInput = NameInput {
+    nieOpen     :: Event ()
+  , nieRead     :: Event String
+  , nibGreeting :: Behavior String
+  , nibNames    :: Behavior (S.Set String)
+  }
+
+data NameOutput = NameOutput {
+    noeWrite :: Event String
+  , noeName  :: Event String
+  }
+```
+##
+
+```haskell
+data NameError =
+    EmptyName
+  | MultiWordName String
+  | IllegalCharInName String
+  | NameInUse String
+  | NameNotInUse String
+  deriving (Eq, Ord, Show)
+
+nameErrorMessage :: NameError -> String
+
+checkValidName :: String -> Either NameError String
+
+checkValidNameNotInUse :: S.Set String 
+                       -> String 
+                       -> Either NameError String
+checkValidNameInUse    :: S.Set String 
+                       -> String 
+                       -> Either NameError String
+```
+
+##
+
+```haskell
+handleName :: NameInput -> Moment NameOutput
+handleName (NameInput eOpen eRead bGreeting bNames) = do
+  let
+    bPrompt = 
+      pure "Please enter your name:"
+
+    eGreeting = 
+      mkGreeting <$> bGreeting <*> bPrompt <@ eOpen
+
+    (eNameInvalid, eNameValid) = 
+      split $ checkValidNameNotInUse <$> bNames <@> eRead
+
+    eNameErrorMessage = 
+      mkNameErrorMessage <$> bPrompt <@> eNameInvalid
+
+    eWrite = 
+      leftmost [eGreeting , eNameErrorMessage]
+
+  return $ NameOutput eWrite eNameValid
+```
+
+##
+
+```haskell
+data CommandInput = CommandInput {
+    cieOpen   :: Event String
+  , cieRead   :: Event String
+  , cieNotify :: Event Notification
+  , cibNames  :: Behavior (S.Set User)
+  , cibName   :: Behavior User
+  }
+
+data CommandOutput = CommandOutput {
+    coeWrite  :: Event String
+  , coeClose  :: Event ()
+  , coeNotify :: Event Notification
+  , coeKick   :: Event User
+  }
+```
+
+##
+
+```haskell
+data Notification =
+    NJoin User
+  | NMessage User Message
+  | NTell User User Message
+  | NKick User User
+  | NQuit User
+  deriving (Eq, Ord, Show)
+```
+
+##
+
+```haskell
+data DomainInput = DomainInput {
+    dieOpen    :: Event User
+  , dieFetch   :: Event ()
+  , dieMessage :: Event Message
+  , dieTell    :: Event PrivateMessage
+  , dieKick    :: Event User
+  , dieHelp    :: Event ()
+  , dieQuit    :: Event ()
+  , dieUnknown :: Event String
+  , dieNotify  :: Event Notification
+  , dibNames   :: Behavior (S.Set User)
+  , dibName    :: Behavior User
+  }
+```
+
+##
+
+```haskell
+data DomainOutput = DomainOutput {
+    doeWrite    :: [Event String]
+  , doeClose    :: [Event ()]
+  , doeNotifies :: [Event Notification]
+  , doeKick     :: Event User
+  }
+```
+
+##
+
+```haskell
+networkDescription :: DomainInput 
+                   -> Moment DomainOutput
+networkDescription nt di = do
+  -- set up all the components
+  let
+    eWrites = [
+      -- gather all the output that
+      -- only goes to the user
+      ]
+    eCloses = [
+      -- gather all of the close events
+      ]
+    eNotifies = [ 
+      -- gather all of the outgoing notifications
+      ]
+
+  return $ 
+    DomainOutput eWrites eCloses eNotifies eKickValid
+```
+##
+
+```haskell
+data MessageInput = MessageInput {
+    mibName    :: Behavior User
+  , mieMessage :: Event String
+  }
+
+data MessageOutput = MessageOutput {
+    moeNotify :: Event Notification
+  }
+
+handleMessage :: MessageInput -> Moment MessageOutput
+handleMessage (MessageInput bName eMessage) = do
+  let
+    eNotify = NMessage <$> bName <@> eMessage
+  return $ MessageOutput eNotify
+```
+
+##
+
+```haskell
+data KickInput = KickInput {
+    kibNames :: Behavior (S.Set User)
+  , kibName  :: Behavior User
+  , kieName  :: Event String
+  }
+
+data KickOutput = KickOutput {
+    koeKickValid :: Event User
+  , koeNotify    :: Event Notification
+  , koeError     :: Event String
+  }
+```
+
+##
+
+```haskell
+checkNotSelf :: User -> User -> Either String User
+checkNotSelf name target
+  | name == target = Left "Stop kicking yourself"
+  | otherwise      = Right target
+
+checkValidNameInUse    :: S.Set String 
+                       -> String 
+                       -> Either NameError String
+```
+
+##
+
+```haskell
+handleKick :: KickInput -> Moment KickOutput
+handleKick (KickInput bNames bName eName) = do
+  let
+    (eKickSelfError, eNotSelf) = 
+      split $ checkNotSelf <$> bName <@> eName
+    (eNameInvalid, eNameValid) = 
+      split $ checkValidNameInUse <$> bNames <@> eNotSelf
+
+    eNotify = NKick <$> bName <@> eNameValid
+    eError = leftmost [
+        eKickSelfError
+      , nameErrorMessage <$> eNameInvalid
+      ]
+  return $ KickOutput eNameValid eNotify eError
+```
+
+##
+
+```haskell
+data NotificationType =
+    Stream
+  | Batch (Behavior Int)
+
+data NotificationInput = NotificationInput {
+    nibName         :: Behavior User
+  , nieFetch        :: Event ()
+  , nieNotification :: Event Notification
+  }
+
+data NotificationOutput = NotificationOutput {
+    noeNotifications :: Event String
+  }
+```
+
+##
+
+```haskell
+handleNotificationStream :: NotificationInput 
+                         -> Moment (Event [Notification])
+handleNotificationStream input =
+  return $ pure <$> nieNotification input
+```
+
+##
+
+```haskell
+addToBoundedList :: Int -> a -> [a] -> [a]
+addToBoundedList limit x xs =
+  take limit (x : xs)
+
+handleNotificationBatch :: Behavior Int 
+                        -> NotificationInput 
+                        -> Moment (Event [Notification])
+handleNotificationBatch bLimit input = do
+  bNotifications <- accumB [] . unions $ [
+      addToBoundedList <$> 
+        nibLimit input <@> 
+        nieNotification input
+    , const [] <$ nieFetch input
+    ]
+  return $ reverse <$> bNotifications <@ nieFetch input
+```
 
 # Filtering and switching
 
 ##
 
-TODO
+First we use the name prompting component.
+
+##
+
+Then we use the command processing component.
+
+##
+
+The first way we can do this is to filter the input events.
+
+##
+
+```haskell
+networkDescription :: InputIO -> Moment OutputIO
+networkDescription (InputIO eOpen eRead) = mdo
+  let
+    bGreeting = pure "Welcome to the chat server."
+    enRead = whenE ((== NamePrompting) <$> bPhase) eRead
+
+  NameOutput enWrite eName <- 
+    handleName $ NameInput eOpen enRead bGreeting bNames
+
+  bNames <- accumB 
+    (S.fromList ["root", "admin"]) 
+    (S.insert <$> eName)
+  bName <- stepper "" eName
+
+  bPhase <- stepper PreOpen . leftmost $ [
+      NamePrompting <$ eOpen
+    , CommandProcessing <$ eName
+    ]
+  ...
+```
+
+##
+
+```haskell
+  ...
+  CommandOutput ecWrite eClose ecNotify _ <- 
+    handleCommand Stream $ 
+      CommandInput eName ecRead ecNotify bNames bName
+
+  let
+    ecRead = 
+      whenE ((== CommandProcessing) <$> bPhase) eRead
+
+  let
+    eWrite = leftmost [enWrite, ecWrite]
+  return $ OutputIO eWrite eClose
+```
+
+##
+
+TODO - intro switching
+
+##
+
+TODO switchB
+
+##
+
+TODO switchE
+
+##
+
+TODO switching in other libraries
+
+##
+
+TODO Switch typeclass
+
+##
+
+TODO Switch instance for OutputIO
+
+##
+
+```haskell
+  ...
+  let
+    nameOut = OutputIO enWrite never
+    cmdOut = OutputIO ecWrite ecClose
+
+  switch nameOut (cmdOut <$ eName)
+```
+
+##
+
+Important to remember to switch out the event that does the switching.
+
+##
+
+A better option is to filter inputs _and_ to switch the outputs.
+
+##
+
+This is often used when you are changing between implementations of an interface based on an event.
+
+##
+
+TODO - switching blocks
 
 # FRP and garbage collection
 
 ##
 
-TODO
+TODO - cover the rules rather than going through how I worked them out
 
 # A socket based server
 
 ##
 
-TODO
+TODO - hooking up the IO
+
+##
+
+TODO - the bit of the network that coordinates the collection of components-per-client
 
 # Conclusion
 
@@ -1213,3 +2119,4 @@ Still lots more to cover:
 ##
 
 - Using `reflex` and `reflex-dom` for the front-end.
+

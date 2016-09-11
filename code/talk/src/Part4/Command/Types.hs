@@ -19,9 +19,7 @@ import Part4.Types
 import Part4.Types.Notification
 
 data CommandInput = CommandInput {
-    cieOpen   :: Event String
-  , cieRead   :: Event String
-  , cieNotify :: Event Notification
+    cieRead   :: Event String
   , cibNames  :: Behavior (S.Set User)
   , cibName   :: Behavior User
   }
@@ -30,5 +28,6 @@ data CommandOutput = CommandOutput {
     coeWrite  :: Event String
   , coeClose  :: Event ()
   , coeNotify :: Event Notification
+  , coeFetch  :: Event ()
   , coeKick   :: Event User
   }
