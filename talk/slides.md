@@ -1,4 +1,4 @@
-% Functional Reactive Programming with Events and Behaviours
+% Functional Reactive Programming with Events and Behaviours - Part 1
 % Dave Laing
 
 # Introduction
@@ -260,6 +260,92 @@ which we'll look at later.
 ##
 
 Let's do something significant with this.
+
+##
+
+```haskell
+multiple :: Int -> Event Int -> Event Int
+multiple m = 
+  filterE (\x -> x `mod` m == 0)
+
+
+
+
+
+
+
+
+
+
+```
+
+##
+
+```haskell
+multiple :: Int -> Event Int -> Event Int
+multiple m = 
+  filterE (\x -> x `mod` m == 0)
+
+importantWork :: Event Int -> Event String
+importantWork eCount =
+  let
+  
+  
+  
+  in
+    ???
+```
+
+##
+
+```haskell
+multiple :: Int -> Event Int -> Event Int
+multiple m = 
+  filterE (\x -> x `mod` m == 0)
+
+importantWork :: Event Int -> Event String
+importantWork eCount =
+  let
+    eFizz = "Fizz" <$ multiple 3 eCount
+    
+    
+  in
+    ???
+```
+
+##
+
+```haskell
+multiple :: Int -> Event Int -> Event Int
+multiple m = 
+  filterE (\x -> x `mod` m == 0)
+
+importantWork :: Event Int -> Event String
+importantWork eCount =
+  let
+    eFizz = "Fizz" <$ multiple 3 eCount
+    eBuzz = "Buzz" <$ multiple 5 eCount
+
+  in
+    ???
+```
+
+##
+
+```haskell
+multiple :: Int -> Event Int -> Event Int
+multiple m = 
+  filterE (\x -> x `mod` m == 0)
+
+importantWork :: Event Int -> Event String
+importantWork eCount =
+  let
+    eFizz = "Fizz" <$ multiple 3 eCount
+    eBuzz = "Buzz" <$ multiple 5 eCount
+    eFizzBuzz = unionWith (++) eFizz eBuzz
+  in
+    ???
+```
 
 ##
 
@@ -976,21 +1062,6 @@ helpMessage =
     eWrite = leftmost [
         "Hi"        <$ eOpen
       ,                eMessage
-
-      , "Bye"       <$ eQuit
-      ]
-```
-
-##
-
-```haskell
-  let
-    eMessage =  filterE (/= "/" . take 1) eRead
-    eHelp    = () <$ filterE (== "/help") eRead
-    eQuit    = () <$ filterE (== "/quit") eRead
-    eWrite = leftmost [
-        "Hi"        <$ eOpen
-      ,                eMessage
       , helpMessage <$ eHelp
       , "Bye"       <$ eQuit
       ]
@@ -1392,11 +1463,11 @@ Let's set up some domain specific input events.
 
 ```haskell
 data Inputs = Inputs {
-    ieOpen           :: Event ()
-  , ieMessage        :: Event String
-  , ieHelp           :: Event ()
-  , ieQuit           :: Event ()
-  , ieUnknownCommand :: Event String
+    ieOpen    :: Event ()
+  , ieMessage :: Event String
+  , ieHelp    :: Event ()
+  , ieUnknown :: Event String
+  , ieQuit    :: Event ()
   }
 ```
 
@@ -1414,7 +1485,7 @@ fanOut (InputIO eOpen eRead) =
     commands = ["help", "quit"]
     eUnknown = filterE (`notElem` commands) eCommand
   in
-    Inputs eOpen eMessage eHelp eQuit eUnknown
+    Inputs eOpen eMessage eHelp eUnknown eQuit
 ```
 
 ##
@@ -1423,6 +1494,21 @@ We'll do something similar for the outputs.
 
 ##
 
+Option 1:
+```haskell
+data Outputs = Outputs {
+    oeOpenWrite    :: Event String
+  , oeMessageWrite :: Event String
+  , oeHelpWrite    :: Event String
+  , oeQuitWrite    :: Event String
+  , oeUnknownWrite :: Event String
+  , oeClose        :: Event ()
+  }
+```
+
+##
+
+Option 2:
 ```haskell
 data Outputs = Outputs {
     oeWrite :: [Event String]
@@ -1449,19 +1535,17 @@ fanIn (Outputs eWrites eCloses) =
 ## 
 
 ```haskell
-domainNetworkDescription :: Inputs -> Moment Outputs
-domainNetworkDescription input =
+networkDescription'' :: Inputs -> Moment Outputs
+networkDescription'' (Inputs eO eM eH eU eQ) =
   let
-    eWrites = [
-        greetingMsg <$ ieOpen input
-      , ieMessage input
-      , helpMessage <$ ieHelp input
-      , partingMessage <$ ieQuit input
-      , unknownMessageFn <$> ieUnknown input
+    eWrite = leftmost [
+        "Hi"           <$  eO
+      ,                    eM
+      , helpMessage    <$  eH
+      , unknownCommand <$> eU
+      , "Bye"          <$  eQ
       ]
-    eQuits = [
-        ieQuit input
-      ]
+    eQuits = [eQ]
   in
     return $ Outputs eWrites eQuits
 ```
@@ -1469,19 +1553,86 @@ domainNetworkDescription input =
 ##
 
 ```haskell
-pureNetworkDescription :: InputIO -> Moment OutputIO
-pureNetworkDescription i = do 
-  o <- domainNetworkDescription . fanOut $ i
+networkDescription` :: InputIO -> Moment OutputIO
+networkDescription` i = do 
+  o <- networkDescription'' . fanOut $ i
   return $ fanIn o
+```
+
+## 
+
+Instead of working with a product of domain events, we could work with a single event of a sum type.
+
+```haskell
+data InputsCmd =
+    ICOpen
+  | ICMessage String
+  | ICHelp
+  | ICQuit
+  | ICUnknown String
+  deriving (Eq, Ord, Show)
+
+fanOut :: InputIO -> Event InputsCmd
 ```
 
 ##
 
-We still have a big ball of mud in the middle.
+We can convert back and forth between these two approaches.
+
+```haskell
+collapse :: Inputs -> Event InputsCmd
+expand   :: Event InputsCmd -> Inputs
+```
 
 ##
 
-It can be useful to come up with several components to break things up.
+Using a single event is great for testing.
+
+```haskell
+interpret :: (Event a -> Moment (Event b)) 
+          -> [Maybe a] 
+          -> IO [Maybe b] 
+```
+
+##
+
+```haskell
+> output <- testNetwork networkDescription' [
+    Just (IORead "one")
+  , Nothing
+  , Just (IORead "two")
+  , Just (IORead "/quit")
+  ]
+> output
+[ Just [IOWrite "one"]
+, Nothing
+, Just [IOWrite "two"]
+, Just [IOWrite "Bye", Close]
+]
+```
+
+##
+
+```haskell
+> output <- testNetwork networkDescription'' [
+    Just Open
+  , Just (Message "testing...")
+  , Just Quit
+  ]
+> output
+[ Just [Write "Hi"]
+, Just [Write "testing..."]
+, Just [Write "Bye", OCClose]
+]
+```
+
+##
+
+Using a product of events is good for decomposing problems into independent components.
+
+##
+
+On that note: we still have a big ball of mud in the middle.
 
 ##
 
@@ -1494,7 +1645,7 @@ data OpenOutput =
 handleOpen :: OpenInput -> Moment OpenOutput
 handleOpen (OpenInput eOpen) =
   let
-    eWrite = "Hi (type /help for instructions)" <$ eOpen
+    eWrite = "Hi" <$ eOpen
   in
     return $ OpenOutput eWrite
 ```
@@ -1519,12 +1670,6 @@ data HelpInput =
   HelpInput  { hieHelp  :: Event () }
 data HelpOutput = 
   HelpOutput { hoeWrite :: Event String }
-
-helpMessage :: String
-helpMessage = intercalate "\n" [
-    "/help displays this message"
-  , "/quit exits the program"
-  ]
 
 handleHelp :: HelpInput -> Moment HelpOutput
 handleHelp (HelpInput eHelp) =
@@ -1561,38 +1706,24 @@ data UnknownInput =
 data UnknownOutput = 
   UnknownOutput { ucoeWrite   :: Event String }
 
-unknownMessageFn :: String -> String
-unknownMessageFn x =
-  "Unknown command: " ++ x ++ 
-  " (type /help for instructions)"
-
 handleUnknown :: UnknownInput -> Moment UnknownOutput
 handleUnknown (UnknownInput eUnknown) =
-  return . UnknownOutput $ unknownMessageFn <$> eUnknown
+  return . UnknownOutput $ unknownCommand <$> eUnknown
 ```
 
 ##
 
 ```haskell
-domainNetworkDescription :: Inputs -> Moment Outputs
-domainNetworkDescription input = do
-  OpenOutput eoWrite <- 
-    handleOpen $ OpenInput (ieOpen input)
-
-  MessageOutput emWrite <- 
-    handleMessage $ MessageInput (ieMessage input)
-
-  HelpOutput ehWrite <- 
-    handleHelp $ HelpInput (ieHelp input)
-
-  QuitOutput eqWrite eqQuit <- 
-    handleQuit $ QuitInput (ieQuit input)
-
-  UnknownOutput euWrite <- 
-    handleUnknown $ UnknownInput (ieUnknown input)
+networkDescription'' :: Inputs -> Moment Outputs
+networkDescription'' (Inputs eO eM eH eU eQ) = do
+  OpenOutput ewO        <- handleOpen    $ OpenInput eO
+  MessageOutput ewM     <- handleMessage $ MessageInput eM
+  HelpOutput ewH        <- handleHelp    $ HelpInput eH
+  UnknownOutput ewU     <- handleUnknown $ UnknownInput eU
+  QuitOutput ewQ eqQuit <- handleQuit    $ QuitInput eQ
 
   return $ Outputs 
-    [eoWrite, emWrite, ehWrite, eqWrite, euWrite] [eqQuit]
+    [ewO, ewM, ewH, ewU, ewQ] [eqQuit]
 ```
 
 # Behaviors
@@ -1996,13 +2127,10 @@ handleMessage (MessageInput eMessage) = do
   let
     format l  m = 
       m ++ 
-      " (last message: " ++ l ++ ")"
-      
-
+      " (last message: "      ++ l       ++ ")"
     eOut = 
         format <$> bMessages <@> eMessage
-        
-        
+
   return $ MessageOutput eOut
 ```
 
@@ -2013,16 +2141,14 @@ handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- accumB [] $
     (\x xs -> x : xs) <$> eMessage
+
   let
     format l  m = 
       m ++ 
-      " (last message: " ++ l ++ ")"
-      
-      
+      " (last message: "      ++ l       ++ ")"
     eOut = 
         format <$> bMessages <@> eMessage
-        
-        
+
   return $ MessageOutput eOut
 ```
 
@@ -2033,15 +2159,13 @@ handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- accumB [] $ 
     (\x xs -> x : xs) <$> eMessage
+
   let
     format ls m = 
       m ++ 
       " (previous messages: " ++ show ls ++ ")"
-      
-      
     eOut = 
         format <$> bMessages <@> eMessage
-        
         
   return $ MessageOutput eOut
 ```
@@ -2057,6 +2181,7 @@ handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- accumB [] $
     (\x xs -> x : xs) <$> eMessage
+
   let
     format ls m = 
       m ++ 
@@ -2067,6 +2192,7 @@ handleMessage (MessageInput eMessage) = do
         format <$> bMessages <@> eMessage
         
         
+
   return $ MessageOutput eOut
 ```
 
@@ -2077,6 +2203,7 @@ handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- accumB [] $
     (\x xs -> x : xs) <$> eMessage
+
   let
     format ls m = 
       m ++ 
@@ -2087,6 +2214,7 @@ handleMessage (MessageInput eMessage) = do
         format <$> bMessages <@> eMessage
         
         
+
   return $ MessageOutput eOut
 ```
 
@@ -2097,6 +2225,7 @@ handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- accumB [] $
     (\x xs -> x : xs) <$> eMessage
+
   let
     format ls m = 
       m ++ 
@@ -2107,6 +2236,7 @@ handleMessage (MessageInput eMessage) = do
         format <$> bMessages <@> eMessage
         
         
+
   return $ MessageOutput eOut
 ```
 
@@ -2117,6 +2247,7 @@ handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- accumB [] $
     (\x xs -> x : xs) <$> eMessage
+
   let
     format ls m = 
       m ++ 
@@ -2127,6 +2258,7 @@ handleMessage (MessageInput eMessage) = do
         format <$> bMessages <@> eMessageWithHistory
 
 
+
   return $ MessageOutput eOut
 ```
 
@@ -2137,6 +2269,7 @@ handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- accumB [] $
     (\x xs -> x : xs) <$> eMessage
+
   let
     format ls m = 
       m ++ 
@@ -2147,6 +2280,7 @@ handleMessage (MessageInput eMessage) = do
         format <$> bMessages <@> eMessageWithHistory
       , eMessage
       ]
+
   return $ MessageOutput eOut
 ```
 
@@ -2161,6 +2295,7 @@ handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- accumB [] $
     (\x xs ->         x : xs ) <$> eMessage
+
   let
     format ls m = 
       m ++ 
@@ -2171,6 +2306,7 @@ handleMessage (MessageInput eMessage) = do
         format <$> bMessages <@> eMessageWithHistory
       , eMessage
       ]
+
   return $ MessageOutput eOut
 ```
 ##
@@ -2180,6 +2316,7 @@ handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- accumB [] $
     (\x xs -> take 3 (x : xs)) <$> eMessage
+
   let
     format ls m = 
       m ++ 
@@ -2190,6 +2327,7 @@ handleMessage (MessageInput eMessage) = do
         format <$> bMessages <@> eMessageWithHistory
       , eMessage
       ]
+
   return $ MessageOutput eOut
 ```
 
@@ -2240,10 +2378,13 @@ unions :: [Event (a -> a)] -> Event (a -> a)
 ```haskell
 handleLimit :: LimitInput -> Moment LimitOutput
 handleLimit (LimitInput eUp eDown) = do
-  bLimit <- accumB 1 . unions $ [
-      succ <$ eUp
-    , (max 0 . pred) <$ eDown
-    ]
+  let
+    eChanges = 
+      unions [
+          succ <$ eUp
+        , (max 0 . pred) <$ eDown
+        ]
+  bLimit <- accumB 1 eChanges
   return $ LimitOutput bLimit
 ```
 
@@ -2257,11 +2398,61 @@ Or, with `RecursiveDo`:
 handleLimit :: LimitInput -> Moment LimitOutput
 handleLimit (LimitInput eUp eDown) = mdo
   let
-    eDownNonNegative = whenE ((> 0) <$> bLimit) eDown
-  bLimit <- accumB 1 . unions $ [
-      succ <$ eUp
-    , pred <$ eDownNonNegative
-    ]
+  
+  
+    eChanges = unions [
+        succ <$ eUp
+      , (max 0 . pred) <$ eDown
+      ]
+  bLimit <- accumB 1 eChanges
+  return $ LimitOutput bLimit
+```
+
+## 
+
+```haskell
+handleLimit :: LimitInput -> Moment LimitOutput
+handleLimit (LimitInput eUp eDown) = mdo
+  let
+    eDownNonNegative = 
+      whenE ((> 0) <$> bLimit) eDown
+    eChanges = unions [
+        succ <$ eUp
+      , (max 0 . pred) <$ eDown
+      ]
+  bLimit <- accumB 1 eChanges
+  return $ LimitOutput bLimit
+```
+
+## 
+
+```haskell
+handleLimit :: LimitInput -> Moment LimitOutput
+handleLimit (LimitInput eUp eDown) = mdo
+  let
+    eDownNonNegative = 
+      whenE ((> 0) <$> bLimit) eDown
+    eChanges = unions [
+        succ <$ eUp
+      , (max 0 . pred) <$ eDownNonNegative
+      ]
+  bLimit <- accumB 1 eChanges
+  return $ LimitOutput bLimit
+```
+
+## 
+
+```haskell
+handleLimit :: LimitInput -> Moment LimitOutput
+handleLimit (LimitInput eUp eDown) = mdo
+  let
+    eDownNonNegative = 
+      whenE ((> 0) <$> bLimit) eDown
+    eChanges = unions [
+        succ <$ eUp
+      , pred           <$ eDownNonNegative
+      ]
+  bLimit <- accumB 1 eChanges
   return $ LimitOutput bLimit
 ```
 
@@ -2273,19 +2464,77 @@ Or, with both an `Event` and a `Behavior` for the limit:
 
 ```haskell
 data LimitOutput = LimitOutput {
+
+    lobLimit :: Behavior Int
+  }
+```
+
+##
+
+```haskell
+data LimitOutput = LimitOutput {
     loeLimit :: Event Int
   , lobLimit :: Behavior Int
   }
+```
 
+## 
+
+```haskell
 handleLimit :: LimitInput -> Moment LimitOutput
 handleLimit (LimitInput eUp eDown) = do
-   let
-     apBoth f x = (f x, f x)
-     eChange = unions [
-         succ <$ eUp
-       , (max 0 . pred) <$ eDown
-       ]
-  (eLimit, bLimit) <- mapAccum 1 $ apBoth <$> eChange
+  let
+
+    eChanges = unions [
+        succ <$ eUp
+      , (max 0 . pred) <$ eDown
+      ]
+  bLimit          <- accumB 1                eChanges
+  return $ LimitOutput        bLimit
+```
+
+## 
+
+```haskell
+handleLimit :: LimitInput -> Moment LimitOutput
+handleLimit (LimitInput eUp eDown) = do
+  let
+    apBoth f x = (f x, f x)
+    eChanges = unions [
+        succ <$ eUp
+      , (max 0 . pred) <$ eDown
+      ]
+  bLimit          <- accumB 1                eChanges
+  return $ LimitOutput        bLimit
+```
+
+##
+
+```haskell
+handleLimit :: LimitInput -> Moment LimitOutput
+handleLimit (LimitInput eUp eDown) = do
+  let
+    apBoth f x = (f x, f x)
+    eChanges = unions [
+        succ <$ eUp
+      , (max 0 . pred) <$ eDown
+      ]
+  (eLimit, bLimit) <- mapAccum 1 $ apBoth <$> eChanges
+  return $ LimitOutput        bLimit
+```
+
+##
+
+```haskell
+handleLimit :: LimitInput -> Moment LimitOutput
+handleLimit (LimitInput eUp eDown) = do
+  let
+    apBoth f x = (f x, f x)
+    eChanges = unions [
+        succ <$ eUp
+      , (max 0 . pred) <$ eDown
+      ]
+  (eLimit, bLimit) <- mapAccum 1 $ apBoth <$> eChanges
   return $ LimitOutput eLimit bLimit
 ```
 
@@ -2321,7 +2570,8 @@ data MessageInput = MessageInput {
 handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage       ) = do
   bMessages <- accumB [] $
-    (\  x xs ->        x : xs ) <$>             eMessage
+    (\  x xs ->         x : xs ) <$>            eMessage
+
   let
     format ls m = 
       m ++ 
@@ -2332,6 +2582,7 @@ handleMessage (MessageInput eMessage       ) = do
         format <$> bMessages <@> eMessageWithHistory
       , eMessage
       ]
+
   return $ MessageOutput eOut
 ```
 
@@ -2341,7 +2592,8 @@ handleMessage (MessageInput eMessage       ) = do
 handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage bLimit) = do
   bMessages <- accumB [] $
-    (\  x xs ->        (x : xs)) <$>            eMessage
+    (\  x xs ->         x : xs ) <$>            eMessage
+
   let
     format ls m = 
       m ++ 
@@ -2352,6 +2604,7 @@ handleMessage (MessageInput eMessage bLimit) = do
         format <$> bMessages <@> eMessageWithHistory
       , eMessage
       ]
+
   return $ MessageOutput eOut
 ```
 
@@ -2361,7 +2614,8 @@ handleMessage (MessageInput eMessage bLimit) = do
 handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage bLimit) = do
   bMessages <- accumB [] $
-    (\  x xs ->        (x : xs)) <$> bLimit <@> eMessage
+    (\  x xs ->         x : xs ) <$> bLimit <@> eMessage
+
   let
     format ls m = 
       m ++ 
@@ -2372,6 +2626,7 @@ handleMessage (MessageInput eMessage bLimit) = do
         format <$> bMessages <@> eMessageWithHistory
       , eMessage
       ]
+
   return $ MessageOutput eOut
 ```
 
@@ -2382,6 +2637,7 @@ handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage bLimit) = do
   bMessages <- accumB [] $
     (\n x xs -> take n (x : xs)) <$> bLimit <@> eMessage
+
   let
     format ls m = 
       m ++ 
@@ -2392,6 +2648,7 @@ handleMessage (MessageInput eMessage bLimit) = do
         format <$> bMessages <@> eMessageWithHistory
       , eMessage
       ]
+
   return $ MessageOutput eOut
 ```
 
