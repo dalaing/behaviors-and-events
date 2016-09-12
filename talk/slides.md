@@ -75,11 +75,7 @@ There can be multiple different events active at the same logical point in time.
 
 ## 
 
-The `Functor` instance demonstrates this.
-
-## 
-
-The output of `fmap` is active at the same points in time as the input.
+The `Functor` instance demonstrates this - the output of `fmap` is active at the same points in time as the input.
 
 ##
 
@@ -175,10 +171,10 @@ splitter :: Event (Either C C)
          -> (Event C, Event C)
 splitter eInput =
   let
-    eOutput = 
+    (eLeft, eRight) = 
       split eInput
   in
-    eOutput
+    (eLeft, eRight)
 ```
 \column{.5\textwidth}
 
@@ -193,8 +189,8 @@ We need to be aware of the potential for simultaneous events when we combine the
 ##
 
 ```haskell
-unionWith :: (a -> a -> a) -> Event a -> Event a 
-          -> Event a
+unionWith :: (a -> a -> a) 
+          -> Event a -> Event a -> Event a
 ```
 
 \colsbegin
@@ -383,6 +379,19 @@ eventStep e i = do
   fire e i
   threadDelay 1000000
 
+
+
+    
+```
+
+##
+
+```haskell
+eventStep :: EventSource Int -> Int -> IO ()
+eventStep e i = do
+  fire e i
+  threadDelay 1000000
+
 eventLoop :: EventSource Int -> IO ()
 eventLoop e =
   traverse_ (eventStep e) [0..]
@@ -524,7 +533,7 @@ counter3 eInc eDouble = do
 
 ##
 
-Let's put that to use.
+Let's put that counter to use.
 
 ##
 
@@ -589,7 +598,7 @@ networkDescription t = do
 
 ##
 
-We're going to start with a program that echoes the input from the user.
+We're going to incrementally put together a program that echoes the input from the user.
 
 ##
 
@@ -621,6 +630,57 @@ Variant: Add the ability to quit
 ##
 
 ```haskell
+
+
+networkDescription :: EventSource String -> MomentIO ()
+networkDescription i = do
+  eRead <- fromAddHandler . addHandler $ i
+
+  let
+    eMessage =                            eRead
+
+
+  reactimate $ putStrLn    <$> eMessage
+  
+```
+
+##
+
+```haskell
+
+
+networkDescription :: EventSource String -> MomentIO ()
+networkDescription i = do
+  eRead <- fromAddHandler . addHandler $ i
+
+  let
+    eMessage =       filterE (/= "/quit") eRead
+
+
+  reactimate $ putStrLn    <$> eMessage
+  
+```
+
+##
+
+```haskell
+
+
+networkDescription :: EventSource String -> MomentIO ()
+networkDescription i = do
+  eRead <- fromAddHandler . addHandler $ i
+
+  let
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+
+  reactimate $ putStrLn    <$> eMessage
+  
+```
+
+##
+
+```haskell
 import System.Exit (exitSuccess) 
 
 networkDescription :: EventSource String -> MomentIO ()
@@ -628,13 +688,11 @@ networkDescription i = do
   eRead <- fromAddHandler . addHandler $ i
 
   let
-    eMessage = 
-      filterE (/= "/quit") eRead
-    eQuit = 
-      () <$ filterE (== "/quit") eRead
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
 
   reactimate $ putStrLn    <$> eMessage
-  reactimate $ exitSuccess <$ eQuit
+  reactimate $ exitSuccess <$  eQuit
 ```
 
 ##
@@ -649,12 +707,67 @@ networkDescription i = do
   eRead <- fromAddHandler . addHandler $ i
 
   let
-    eMessage = 
-      filterE (/= "/quit") eRead
-    eQuit = 
-      () <$ filterE (== "/quit") eRead
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+
+
+
+      
+
+  reactimate $ putStrLn    <$> eMessage
+  reactimate $ exitSuccess <$  eQuit
+```
+
+##
+
+```haskell
+networkDescription :: EventSource String -> MomentIO ()
+networkDescription i = do
+  eRead <- fromAddHandler . addHandler $ i
+
+  let
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite =
+                 eMessage
+        
+
+
+  reactimate $ putStrLn    <$> eMessage
+  reactimate $ exitSuccess <$  eQuit
+```
+
+##
+
+```haskell
+networkDescription :: EventSource String -> MomentIO ()
+networkDescription i = do
+  eRead <- fromAddHandler . addHandler $ i
+
+  let
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite =
+                 eMessage
+        
+
+
+  reactimate $ putStrLn    <$> eWrite
+  reactimate $ exitSuccess <$  eQuit
+```
+
+##
+
+```haskell
+networkDescription :: EventSource String -> MomentIO ()
+networkDescription i = do
+  eRead <- fromAddHandler . addHandler $ i
+
+  let
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
     eWrite = leftmost [
-        eMessage
+                 eMessage
       , "Bye" <$ eQuit
       ]
 
@@ -693,19 +806,101 @@ eventLoop (InputSources o r) = do
 ##
 
 ```haskell
-networkDescription :: InputSources -> MomentIO ()
+networkDescription :: EventSource String -> MomentIO ()
+networkDescription i                  = do
+
+  eRead <- fromAddHandler . addHandler $ i
+
+  let
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite = leftmost [
+
+                 eMessage
+      , "Bye" <$ eQuit
+      ]
+
+  reactimate $ putStrLn    <$> eWrite
+  reactimate $ exitSuccess <$  eQuit
+```
+
+##
+
+```haskell
+networkDescription :: InputSources       -> MomentIO ()
+networkDescription (InputSources o r) = do
+
+  eRead <- fromAddHandler . addHandler $ i
+
+  let
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite = leftmost [
+
+                 eMessage
+      , "Bye" <$ eQuit
+      ]
+
+  reactimate $ putStrLn    <$> eWrite
+  reactimate $ exitSuccess <$  eQuit
+```
+
+##
+
+```haskell
+networkDescription :: InputSources       -> MomentIO ()
+networkDescription (InputSources o r) = do
+
+  eRead <- fromAddHandler . addHandler $ r
+
+  let
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite = leftmost [
+
+                 eMessage
+      , "Bye" <$ eQuit
+      ]
+
+  reactimate $ putStrLn    <$> eWrite
+  reactimate $ exitSuccess <$  eQuit
+```
+
+##
+
+```haskell
+networkDescription :: InputSources       -> MomentIO ()
 networkDescription (InputSources o r) = do
   eOpen <- fromAddHandler . addHandler $ o
   eRead <- fromAddHandler . addHandler $ r
 
   let
-    eMessage = 
-      filterE (/= "/quit") eRead
-    eQuit = 
-      () <$ filterE (== "/quit") eRead
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
     eWrite = leftmost [
-        "Hi" <$ eOpen
-      , eMessage
+
+                 eMessage
+      , "Bye" <$ eQuit
+      ]
+
+  reactimate $ putStrLn    <$> eWrite
+  reactimate $ exitSuccess <$  eQuit
+```
+
+##
+
+```haskell
+networkDescription :: InputSources       -> MomentIO ()
+networkDescription (InputSources o r) = do
+  eOpen <- fromAddHandler . addHandler $ o
+  eRead <- fromAddHandler . addHandler $ r
+
+  let
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite = leftmost [
+        "Hi"  <$ eOpen
+      ,          eMessage
       , "Bye" <$ eQuit
       ]
 
@@ -720,17 +915,85 @@ Variant: Add a help command
 ##
 
 ```haskell
-...
+helpMessage :: String
+helpMessage = 
+  "/help              - displays this message\n" ++
+  "/quit              - exits the program"
+```
+
+##
+
+```haskell
   let
-    eMessage = filterE (/= "/" . take 1) eRead
+    eMessage =       filterE (/= "/quit") eRead
+
+    eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite = leftmost [
+        "Hi"        <$ eOpen
+      ,                eMessage
+
+      , "Bye"       <$ eQuit
+      ]
+```
+
+##
+
+```haskell
+  let
+    eMessage =  filterE (/= "/" . take 1) eRead
+
+    eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite = leftmost [
+        "Hi"        <$ eOpen
+      ,                eMessage
+
+      , "Bye"       <$ eQuit
+      ]
+```
+
+##
+
+```haskell
+  let
+    eMessage =  filterE (/= "/" . take 1) eRead
     eHelp    = () <$ filterE (== "/help") eRead
     eQuit    = () <$ filterE (== "/quit") eRead
     eWrite = leftmost [
-      ...
-      , helpMessage <$ eHelp
-      ...
+        "Hi"        <$ eOpen
+      ,                eMessage
+
+      , "Bye"       <$ eQuit
       ]
-...
+```
+
+##
+
+```haskell
+  let
+    eMessage =  filterE (/= "/" . take 1) eRead
+    eHelp    = () <$ filterE (== "/help") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite = leftmost [
+        "Hi"        <$ eOpen
+      ,                eMessage
+
+      , "Bye"       <$ eQuit
+      ]
+```
+
+##
+
+```haskell
+  let
+    eMessage =  filterE (/= "/" . take 1) eRead
+    eHelp    = () <$ filterE (== "/help") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite = leftmost [
+        "Hi"        <$ eOpen
+      ,                eMessage
+      , helpMessage <$ eHelp
+      , "Bye"       <$ eQuit
+      ]
 ```
 
 ##
@@ -740,28 +1003,170 @@ Variant: Deal with unknown commands
 ##
 
 ```haskell
-...
-  let
-    eMessage = 
-      filterE ((/= "/") . take 1) eRead
-    eCommand = 
-      fmap (drop 1) . filterE ((== "/") . take 1) $ eRead
+type Message = String
+type Command = String
 
-    eHelp    = () <$ filterE (== "help") eCommand
-    eQuit    = () <$ filterE (== "quit") eCommand
+command :: String -> Either Message Command
+command ('/':xs) = Right xs
+command xs       = Left xs
+```
+
+##
+
+```haskell
+unknownCommand :: Command -> String
+unknownCommand cmd =
+  let
+    helpPrompt = "\nType /help for options."
+    commandError = case cmd of
+    case cmd of
+      "" -> 
+        "Command can not be an empty string."
+      cmd ->
+        "Unknown command: " ++ cmd ++ "."
+  in
+    commandError ++ helpPrompt
+```
+
+##
+
+```haskell
+  let
+    eMessage =       filterE (/= "/" . take 1) eRead
+
+    eHelp    =   () <$ filterE (== "/help")    eRead
+    eQuit    =   () <$ filterE (== "/quit")    eRead
+    
+    
+    
+    
+    eWrite = leftmost [
+        "Hi"           <$  eOpen
+      ,                    eMessage
+      , helpMessage    <$  eHelp
+
+      , "Bye"          <$  eQuit
+      ]
+```
+
+##
+
+```haskell
+  let
+    (eMessage, eCommand) = split $ command <$> eRead
+
+    eHelp    =   () <$ filterE (== "/help")    eRead
+    eQuit    =   () <$ filterE (== "/quit")    eRead
+    
+    
+    
+    
+    eWrite = leftmost [
+        "Hi"           <$  eOpen
+      ,                    eMessage
+      , helpMessage    <$  eHelp
+
+      , "Bye"          <$  eQuit
+      ]
+```
+
+##
+
+```haskell
+  let
+    (eMessage, eCommand) = split $ command <$> eRead
+
+    eHelp    =   () <$ filterE (== "/help") eCommand
+    eQuit    =   () <$ filterE (== "/quit") eCommand
+    
+    
+    
+    
+    eWrite = leftmost [
+        "Hi"           <$  eOpen
+      ,                    eMessage
+      , helpMessage    <$  eHelp
+
+      , "Bye"          <$  eQuit
+      ]
+```
+
+##
+
+```haskell
+  let
+    (eMessage, eCommand) = split $ command <$> eRead
+
+    eHelp    =   () <$ filterE (== "help")  eCommand
+    eQuit    =   () <$ filterE (== "quit")  eCommand
+    
+    
+    
+    
+    eWrite = leftmost [
+        "Hi"           <$  eOpen
+      ,                    eMessage
+      , helpMessage    <$  eHelp
+
+      , "Bye"          <$  eQuit
+      ]
+```
+
+##
+
+```haskell
+  let
+    (eMessage, eCommand) = split $ command <$> eRead
+
+    eHelp    =   () <$ filterE (== "help")  eCommand
+    eQuit    =   () <$ filterE (== "quit")  eCommand
 
     commands = ["help", "quit"]
     eUnknown = filterE (`notElem` commands) eCommand
 
     eWrite = leftmost [
-      ...
-      , unknownMessage <$> eUnknown
-      ...
+        "Hi"           <$  eOpen
+      ,                    eMessage
+      , helpMessage    <$  eHelp
+
+      , "Bye"          <$  eQuit
       ]
-...
 ```
 
-# Some refactorings
+##
+
+```haskell
+  let
+    (eMessage, eCommand) = split $ command <$> eRead
+
+    eHelp    =   () <$ filterE (== "help")  eCommand
+    eQuit    =   () <$ filterE (== "quit")  eCommand
+
+    commands = ["help", "quit"]
+    eUnknown = filterE (`notElem` commands) eCommand
+
+    eWrite = leftmost [
+        "Hi"           <$  eOpen
+      ,                    eMessage
+      , helpMessage    <$  eHelp
+      , unknownCommand <$> eUnknown
+      , "Bye"          <$  eQuit
+      ]
+```
+
+# Refactorings and API options
+
+##
+
+FRP code is usually pretty easy to refactor.
+
+##
+
+There isn't much information out there about what you should be refactoring towards.
+
+##
+
+Let's look at some options.
 
 ##
 
@@ -808,28 +1213,24 @@ mkNetwork fn input = do
   handleOutput o
 ```
 
-##
-
-Old version:
-
 ## 
 
 ```haskell
 networkDescription :: InputSources -> MomentIO ()
-networkDescription (InputSources o r) = do
+networkDescription (InputSources o r)    = do
   eOpen <- fromAddHandler . addHandler $ o
   eRead <- fromAddHandler . addHandler $ r
 
   let
-    eMessage = 
-      filterE (/= "/quit") eRead
-    eQuit = 
-      () <$ filterE (== "/quit") eRead
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
     eWrite = leftmost [
         "Hi" <$ eOpen
       , eMessage
       , "Bye" <$ eQuit
       ]
+
+
 
   reactimate $ putStrLn    <$> eWrite
   reactimate $ exitSuccess <$  eQuit
@@ -837,34 +1238,146 @@ networkDescription (InputSources o r) = do
 
 ##
 
-New version:
+```haskell
+networkDescription :: InputIO      -> MomentIO ()
+networkDescription (InputSources o r)    = do
+  eOpen <- fromAddHandler . addHandler $ o
+  eRead <- fromAddHandler . addHandler $ r
+
+  let
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite = leftmost [
+        "Hi" <$ eOpen
+      , eMessage
+      , "Bye" <$ eQuit
+      ]
+
+
+
+  reactimate $ putStrLn    <$> eWrite
+  reactimate $ exitSuccess <$  eQuit
+```
 
 ##
 
 ```haskell
-pureNetworkDescription :: InputIO -> Moment OutputIO 
-pureNetworkDescription (InputIO eOpen eRead) =
+networkDescription :: InputIO      -> MomentIO ()
+networkDescription (InputIO eOpen eRead) = do
+  eOpen <- fromAddHandler . addHandler $ o
+  eRead <- fromAddHandler . addHandler $ r
+
   let
-    eMessage = 
-      filterE (/= "/quit") eRead
-    eQuit = 
-      () <$ filterE (== "/quit") eRead
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite = leftmost [
+        "Hi" <$ eOpen
+      , eMessage
+      , "Bye" <$ eQuit
+      ]
+
+
+
+  reactimate $ putStrLn    <$> eWrite
+  reactimate $ exitSuccess <$  eQuit
+```
+
+##
+
+```haskell
+networkDescription :: InputIO      -> MomentIO ()
+networkDescription (InputIO eOpen eRead) = do
+
+
+
+  let
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite = leftmost [
+        "Hi" <$ eOpen
+      , eMessage
+      , "Bye" <$ eQuit
+      ]
+
+
+
+  reactimate $ putStrLn    <$> eWrite
+  reactimate $ exitSuccess <$  eQuit
+```
+
+##
+
+```haskell
+networkDescription :: InputIO      -> Moment OutputIO
+networkDescription (InputIO eOpen eRead) = do
+
+
+
+  let
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite = leftmost [
+        "Hi" <$ eOpen
+      , eMessage
+      , "Bye" <$ eQuit
+      ]
+
+
+
+  reactimate $ putStrLn    <$> eWrite
+  reactimate $ exitSuccess <$  eQuit
+```
+
+##
+
+```haskell
+networkDescription :: InputIO      -> Moment OutputIO 
+networkDescription (InputIO eOpen eRead) =
+
+
+
+  let
+    eMessage =       filterE (/= "/quit") eRead
+    eQuit    = () <$ filterE (== "/quit") eRead
     eWrite = leftmost [
         "Hi" <$ eOpen
       , eMessage
       , "Bye" <$ eQuit
       ]
   in
-    return $ OutputIO eWrite eQuit
+    return $ 
+      OutputIO 
+                               eWrite 
+                               eQuit
+```
+##
+
+```haskell
+
+
+
+networkDescription  :: InputIO      -> Moment OutputIO 
+networkDescription  = ...
 ```
 
 ##
 
-Plus a wrapper:
+```haskell
+
+
+
+networkDescription' :: InputIO      -> Moment OutputIO 
+networkDescription' = ...
+```
+
+##
+
 ```haskell
 networkDescription :: InputSources -> MomentIO ()
-networkDescription = 
-  mkNetwork pureNetworkDescription
+networkDescription = mkNetwork networkDescription'
+
+networkDescription' :: InputIO      -> Moment OutputIO 
+networkDescription' = ...
 ```
 
 ##
@@ -893,17 +1406,10 @@ data Inputs = Inputs {
 fanOut :: InputIO -> Inputs
 fanOut (InputIO eOpen eRead) =
   let
-    eReadNonEmpty = filterE (not . null) eRead
+    (eMessage, eCommand) = split $ command <$> eRead
 
-    isMessage = (/= "/") . take 1
-    eMessage = filterE isMessage eReadNonEmpty
-
-    isCommand = (== "/") . take 1
-    mkCommand = fmap (drop 1) . filterE isCommand
-    eCommand = mkCommand eReadNonEmpty
-
-    eHelp = () <$ filterE (== "help") eCommand
-    eQuit = () <$ filterE (== "quit") eCommand
+    eHelp    =   () <$ filterE (== "help")  eCommand
+    eQuit    =   () <$ filterE (== "quit")  eCommand
 
     commands = ["help", "quit"]
     eUnknown = filterE (`notElem` commands) eCommand
@@ -1259,6 +1765,10 @@ sifter bInput eInput =
 
 ##
 
+Let's look at a little example.
+
+##
+
 ```haskell
 logInHandler :: Event () 
              -> Event () 
@@ -1269,6 +1779,10 @@ logInHandler eLogIn eLogOut =
     , LoggedOut <$ eLogOut
     ]
 ```
+
+##
+
+Now let's add some error handling.
 
 ##
 
@@ -1285,6 +1799,114 @@ logOut LoggedIn  = Right LoggedOut
 ##
 
 ```haskell
+{-# LANGUAGE RecursiveDo #-}
+```
+
+## 
+
+```haskell
+logIn  :: LogInState -> Either LogInError LogInState
+logOut :: LogInState -> Either LogInError LogInState
+
+logInHandler :: Event () 
+             -> Event () 
+             -> Moment ( Behavior LogInState
+                       , Event    LogInError
+                       )
+logInHandler eLogIn eLogOut = mdo
+
+  
+  
+  
+  
+  return (???        , ???        )
+```
+## 
+
+```haskell
+logIn  :: LogInState -> Either LogInError LogInState
+logOut :: LogInState -> Either LogInError LogInState
+
+logInHandler :: Event () 
+             -> Event () 
+             -> Moment ( Behavior LogInState
+                       , Event    LogInError
+                       )
+logInHandler eLogIn eLogOut = mdo
+  bLogInState <- stepper LoggedOut ???
+  
+  
+  
+  
+  return (???        , ???        )
+```
+
+##
+
+```haskell
+logIn  :: LogInState -> Either LogInError LogInState
+logOut :: LogInState -> Either LogInError LogInState
+
+logInHandler :: Event () 
+             -> Event () 
+             -> Moment ( Behavior LogInState
+                       , Event    LogInError
+                       )
+logInHandler eLogIn eLogOut = mdo
+  bLogInState <- stepper LoggedOut ???
+  
+  
+  
+  
+  return (bLogInState, ???        )
+```
+
+##
+
+```haskell
+logIn  :: LogInState -> Either LogInError LogInState
+logOut :: LogInState -> Either LogInError LogInState
+
+logInHandler :: Event () 
+             -> Event () 
+             -> Moment ( Behavior LogInState
+                       , Event    LogInError
+                       )
+logInHandler eLogIn eLogOut = mdo
+  bLogInState <- stepper LoggedOut ???
+  (eLogInError, eLogInState) = split . leftmost $ [
+      logIn  <$> bLogInState <@ eLogIn
+      logOut <$> bLogInState <@ eLogOut
+    ]
+  return (bLogInState, ???        )
+```
+
+##
+
+```haskell
+logIn  :: LogInState -> Either LogInError LogInState
+logOut :: LogInState -> Either LogInError LogInState
+
+logInHandler :: Event () 
+             -> Event () 
+             -> Moment ( Behavior LogInState
+                       , Event    LogInError
+                       )
+logInHandler eLogIn eLogOut = mdo
+  bLogInState <- stepper LoggedOut ???
+  (eLogInError, eLogInState) = split . leftmost $ [
+      logIn  <$> bLogInState <@ eLogIn
+      logOut <$> bLogInState <@ eLogOut
+    ]
+  return (bLogInState, eLogInError)
+```
+
+##
+
+```haskell
+logIn  :: LogInState -> Either LogInError LogInState
+logOut :: LogInState -> Either LogInError LogInState
+
 logInHandler :: Event () 
              -> Event () 
              -> Moment ( Behavior LogInState
@@ -1368,9 +1990,11 @@ toggler eInput = do
 ```haskell
 handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage) = do
-  bMessages <- stepper "" eMessage
+  bMessages <- stepper "" 
+                          eMessage
+
   let
-    format l m = 
+    format l  m = 
       m ++ 
       " (last message: " ++ l ++ ")"
       
@@ -1390,7 +2014,7 @@ handleMessage (MessageInput eMessage) = do
   bMessages <- accumB [] $
     (\x xs -> x : xs) <$> eMessage
   let
-    format l m = 
+    format l  m = 
       m ++ 
       " (last message: " ++ l ++ ")"
       
@@ -1536,7 +2160,7 @@ We should trim that history a little.
 handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- accumB [] $
-    (\x xs -> x : xs) <$> eMessage
+    (\x xs ->         x : xs ) <$> eMessage
   let
     format ls m = 
       m ++ 
@@ -1554,8 +2178,8 @@ handleMessage (MessageInput eMessage) = do
 ```haskell
 handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage) = do
-  bMessages <- fmap (take 3) . accumB [] $
-    (\x xs -> x : xs) <$> eMessage
+  bMessages <- accumB [] $
+    (\x xs -> take 3 (x : xs)) <$> eMessage
   let
     format ls m = 
       m ++ 
@@ -1571,7 +2195,15 @@ handleMessage (MessageInput eMessage) = do
 
 ##
 
+We do the trimming while creating the `Behavior`, to keep the storage size bounded.
+
+##
+
 Hard-coding that 3 should make us a bit queasy.
+
+##
+
+Digression: Let's build a component that will provide the message history limit.
 
 ##
 
@@ -1622,7 +2254,6 @@ Or, with `RecursiveDo`:
 ## 
 
 ```haskell
-{-# LANGUAGE RecursiveDo #-}
 handleLimit :: LimitInput -> Moment LimitOutput
 handleLimit (LimitInput eUp eDown) = mdo
   let
@@ -1671,6 +2302,15 @@ Now we can make use of the `Behavior Int` that comes out of the limit component,
 ```haskell
 data MessageInput = MessageInput {
     mieRead  :: Event String
+
+  }
+```
+
+##
+
+```haskell
+data MessageInput = MessageInput {
+    mieRead  :: Event String
   , mibLimit :: Behavior Int
   }
 ```
@@ -1678,18 +2318,74 @@ data MessageInput = MessageInput {
 ##
 
 ```haskell
-addMessage :: Int -> String -> [String] -> [String]
-addMessage n m ms =
-  take n (m : ms)
+handleMessage :: MessageInput -> Moment MessageOutput
+handleMessage (MessageInput eMessage       ) = do
+  bMessages <- accumB [] $
+    (\  x xs ->        x : xs ) <$>             eMessage
+  let
+    format ls m = 
+      m ++ 
+      " (previous messages: " ++ show ls ++ ")"
+    bHasMessages = (not . null) <$> bMessages
+    eMessageWithHistory = whenE bHasMessage eMessage
+    eOut = leftmost [
+        format <$> bMessages <@> eMessageWithHistory
+      , eMessage
+      ]
+  return $ MessageOutput eOut
+```
 
+##
+
+```haskell
 handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage bLimit) = do
-  bMessage <- accumB [] $
-    addMessage <$> bLimit <@> eMessage
+  bMessages <- accumB [] $
+    (\  x xs ->        (x : xs)) <$>            eMessage
   let
-    format ms m = 
+    format ls m = 
       m ++ 
-      " (previous messages: " ++ show ms ++ ")"
+      " (previous messages: " ++ show ls ++ ")"
+    bHasMessages = (not . null) <$> bMessages
+    eMessageWithHistory = whenE bHasMessage eMessage
+    eOut = leftmost [
+        format <$> bMessages <@> eMessageWithHistory
+      , eMessage
+      ]
+  return $ MessageOutput eOut
+```
+
+##
+
+```haskell
+handleMessage :: MessageInput -> Moment MessageOutput
+handleMessage (MessageInput eMessage bLimit) = do
+  bMessages <- accumB [] $
+    (\  x xs ->        (x : xs)) <$> bLimit <@> eMessage
+  let
+    format ls m = 
+      m ++ 
+      " (previous messages: " ++ show ls ++ ")"
+    bHasMessages = (not . null) <$> bMessages
+    eMessageWithHistory = whenE bHasMessage eMessage
+    eOut = leftmost [
+        format <$> bMessages <@> eMessageWithHistory
+      , eMessage
+      ]
+  return $ MessageOutput eOut
+```
+
+##
+
+```haskell
+handleMessage :: MessageInput -> Moment MessageOutput
+handleMessage (MessageInput eMessage bLimit) = do
+  bMessages <- accumB [] $
+    (\n x xs -> take n (x : xs)) <$> bLimit <@> eMessage
+  let
+    format ls m = 
+      m ++ 
+      " (previous messages: " ++ show ls ++ ")"
     bHasMessages = (not . null) <$> bMessages
     eMessageWithHistory = whenE bHasMessage eMessage
     eOut = leftmost [
