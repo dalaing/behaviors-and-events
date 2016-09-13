@@ -15,7 +15,7 @@
    id="svg2"
    version="1.1"
    inkscape:version="0.91 r13725"
-   sodipodi:docname="switchB.svg">
+   sodipodi:docname="switchB-slides.svg">
   <defs
      id="defs4">
     <marker
@@ -71,7 +71,7 @@
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
      inkscape:zoom="0.7"
-     inkscape:cx="543.82805"
+     inkscape:cx="562.39948"
      inkscape:cy="429.97001"
      inkscape:document-units="px"
      inkscape:current-layer="layer1"
@@ -104,7 +104,7 @@
         <dc:format>image/svg+xml</dc:format>
         <dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
-        <dc:title />
+        <dc:title></dc:title>
       </cc:Work>
     </rdf:RDF>
   </metadata>
@@ -412,14 +412,14 @@
     <text
        xml:space="preserve"
        style="font-style:normal;font-weight:normal;font-size:40px;line-height:125%;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
-       x="16.278208"
+       x="148.62196"
        y="442.36221"
        id="text4682"
        sodipodi:linespacing="125%"><tspan
          sodipodi:role="line"
-         x="16.278208"
+         x="148.62196"
          y="442.36221"
-         id="tspan12889">eSwitch1</tspan></text>
+         id="tspan12889">e1</tspan></text>
     <text
        xml:space="preserve"
        style="font-style:normal;font-weight:normal;font-size:40px;line-height:125%;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
@@ -665,35 +665,35 @@
     <text
        xml:space="preserve"
        style="font-style:normal;font-weight:normal;font-size:40px;line-height:125%;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
-       x="16.590708"
+       x="148.93446"
        y="742.36218"
        id="text12941"
        sodipodi:linespacing="125%"><tspan
          sodipodi:role="line"
          id="tspan12943"
-         x="16.590708"
-         y="742.36218">eSwitch2</tspan></text>
+         x="148.93446"
+         y="742.36218">e2</tspan></text>
     <text
        xml:space="preserve"
        style="font-style:normal;font-weight:normal;font-size:40px;line-height:125%;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
-       x="44.168835"
+       x="147.84071"
        y="292.36221"
        id="text12993"
        sodipodi:linespacing="125%"><tspan
          sodipodi:role="line"
          id="tspan12995"
-         x="44.168835"
-         y="292.36221">bInput1</tspan></text>
+         x="147.84071"
+         y="292.36221">b1</tspan></text>
     <text
        xml:space="preserve"
        style="font-style:normal;font-weight:normal;font-size:40px;line-height:125%;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
-       x="44.481335"
+       x="148.15321"
        y="592.36218"
        id="text13045"
        sodipodi:linespacing="125%"><tspan
          sodipodi:role="line"
          id="tspan13047"
-         x="44.481335"
-         y="592.36218">bInput2</tspan></text>
+         x="148.15321"
+         y="592.36218">b2</tspan></text>
   </g>
 </svg>
