@@ -614,7 +614,7 @@ counter2 :: MonadMoment m
          -> m (Event Int)
 counter2 eInc eDouble = do
   eOutput <- 
-    accumE 0 $ lefmost [
+    accumE 0 $ leftmost [
         (+ 1) <$ eInc
       , (* 2) <$ eDouble
       ]
@@ -1662,7 +1662,7 @@ interpret :: (Event a -> Moment (Event b))
 [ Just [IOWrite "one"]
 , Nothing
 , Just [IOWrite "two"]
-, Just [IOWrite "Bye", Close]
+, Just [IOWrite "Bye", IOClose]
 ]
 ```
 
@@ -1677,7 +1677,7 @@ interpret :: (Event a -> Moment (Event b))
 > output
 [ Just [Write "Hi"]
 , Just [Write "testing..."]
-, Just [Write "Bye", OCClose]
+, Just [Write "Bye", Close]
 ]
 ```
 
@@ -2883,6 +2883,126 @@ handleNotifyBatch bLimit (NotifyInput eFetch eNotify) = do
 
 ```haskell
 handleBlock (Inputs eOpen eRead bGreet bNames eNotify) = do
+
+
+
+
+
+
+
+
+
+   
+   
+   
+   
+  
+  
+  
+  
+  return $ Outputs eWrite eClose eNotifyOut eKick
+```
+
+##
+
+```haskell
+handleBlock (Inputs eOpen eRead bGreet bNames eNotify) = do
+  NameOutput enWrite enNotify eName <- 
+    handleName $ NameInput eOpen eRead bGreet bNames
+
+
+
+
+
+
+
+   
+   
+   
+   
+   
+   
+   
+   
+  return $ Outputs eWrite eClose eNotifyOut eKick
+```
+
+##
+
+```haskell
+handleBlock (Inputs eOpen eRead bGreet bNames eNotify) = do
+  NameOutput enWrite enNotify eName <- 
+    handleName $ NameInput eOpen eRead bGreet bNames
+
+  bName <- stepper "" eName
+
+
+
+
+
+   
+   
+   
+   
+  
+  
+  
+  
+  return $ Outputs eWrite eClose eNotifyOut eKick
+```
+
+##
+
+```haskell
+handleBlock (Inputs eOpen eRead bGreet bNames eNotify) = do
+  NameOutput enWrite enNotify eName <- 
+    handleName $ NameInput eOpen eRead bGreet bNames
+
+  bName <- stepper "" eName
+
+  CommandOutput ecWrite eClose ecNotify eFetch eKick <- 
+    handleCommand $ 
+      CommandInput eRead bNames bName
+
+   
+   
+   
+   
+  
+  
+  
+  
+  return $ Outputs eWrite eClose eNotifyOut eKick
+```
+
+##
+
+```haskell
+handleBlock (Inputs eOpen eRead bGreet bNames eNotify) = do
+  NameOutput enWrite enNotify eName <- 
+    handleName $ NameInput eOpen eRead bGreet bNames
+
+  bName <- stepper "" eName
+
+  CommandOutput ecWrite eClose ecNotify eFetch eKick <- 
+    handleCommand $ 
+      CommandInput eRead bNames bName
+
+  NotificationOutput enoWrite <- 
+    handleNotifyStream $ 
+      NotificationInput eFetch eNotify
+
+
+  
+  
+  
+  return $ Outputs eWrite eClose eNotifyOut eKick
+```
+
+##
+
+```haskell
+handleBlock (Inputs eOpen eRead bGreet bNames eNotify) = do
   NameOutput enWrite enNotify eName <- 
     handleName $ NameInput eOpen eRead bGreet bNames
 
@@ -3518,18 +3638,288 @@ How do we test these guidelines? Especially if being connected to IO can have an
 
 ##
 
-Allocate memory in known time-varying patterns and run a heap profile.
+Allocate memory in fixed time-varying patterns, play with various options and profile the heap.
 
 
 # A socket based server
 
 ##
 
-TODO - hooking up the IO
+Will go into much more depth in this in Part 2.
 
 ##
 
-TODO - the bit of the network that coordinates the collection of components-per-client
+```haskell
+-- data ClientFns = ClientFns {
+--    cfWrite :: String -> IO ()
+--  , cfClose :: IO ()
+--  }
+
+mkServerNetwork (ServerIOInputs cl o r c) = mdo
+  -- eNewClient :: Event (Int, ClientFns)
+  eNewClient <- fromAddHandler . addHandler $ cl
+  -- eOpens :: Event Int
+  eOpens     <- fromAddHandler . addHandler $ o
+  -- eReads :: Event (Int, String)
+  eReads     <- fromAddHandler . addHandler $ r
+  -- eCloses :: Event Int
+  eCloses    <- fromAddHandler . addHandler $ c
+  ...
+```
+
+##
+
+```haskell
+-- data ClientState = ClientState {
+--    csName    :: String
+--  , cseNotify :: Event Notification
+--  }
+
+  ...
+  let
+    -- mkClient :: (Int, ClientFns) 
+    --          -> MomentIO (Int, Behavior ClientState)
+    mkClient (i, c) = do
+      cn <- mkClientNetwork 
+        eOpens eReads eCloses bNames eNotify i c
+      return (i, cn)
+
+  -- eClient :: Event (Int, Behavior ClientState)
+  eClient <- execute $ mkClient <$> eNewClient
+  ...
+```
+
+##
+
+```haskell
+  ...
+  -- eClient :: Event (Int, Behavior ClientState)
+  eClient <- execute $ mkClient <$> eNewClient
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ...
+```
+
+##
+
+```haskell
+  ...
+  -- eClient :: Event (Int, Behavior ClientState)
+  eClient <- execute $ mkClient <$> eNewClient
+
+  -- embClients :: 
+  --   Event (M.Map Int (Behavior ClientState))
+  embClients <- accumE M.empty . unions $ [
+      uncurry M.insert <$> eClient
+    , M.delete         <$> eCloses
+    ]
+
+
+
+
+
+
+
+
+  ...
+```
+
+##
+
+```haskell
+  ...
+  -- eClient :: Event (Int, Behavior ClientState)
+  eClient <- execute $ mkClient <$> eNewClient
+
+  -- embClients :: 
+  --   Event (M.Map Int (Behavior ClientState))
+  embClients <- accumE M.empty . unions $ [
+      uncurry M.insert <$> eClient
+    , M.delete         <$> eCloses
+    ]
+
+  let
+    -- ebmClients :: 
+    --   Event (Behavior (M.Map Int ClientState))
+    ebmClients = sequenceA <$> eClients
+
+
+
+  ...
+```
+
+##
+
+```haskell
+  ...
+  -- eClient :: Event (Int, Behavior ClientState)
+  eClient <- execute $ mkClient <$> eNewClient
+
+  -- embClients :: 
+  --   Event (M.Map Int (Behavior ClientState))
+  embClients <- accumE M.empty . unions $ [
+      uncurry M.insert <$> eClient
+    , M.delete         <$> eCloses
+    ]
+
+  let
+    -- ebmClients :: 
+    --   Event (Behavior (M.Map Int ClientState))
+    ebmClients = sequenceA <$> eClients
+
+  -- bClients :: Behavior (M.Map Int ClientState)
+  bClients <- switchB (pure M.empty) ebmClients
+  ...
+```
+
+##
+
+We just need to get hold of `bNames` and `eNotify`.
+
+##
+
+```haskell
+  let
+    -- getNames :: M.Map Int ClientState
+    --          -> S.Set String
+    getNames = 
+      S.fromList . M.elems . fmap csName
+    -- bNames :: Behavior (S.Set String)
+    bNames = getNames <$> bClients
+```
+
+##
+
+```haskell
+  let
+    -- getENotify :: M.Map Int ClientState
+    --            -> Event Notification
+    getENotify = 
+      leftmost . M.elems . fmap cseNotify
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+```
+
+##
+
+```haskell
+  let
+    -- getENotify :: M.Map Int ClientState
+    --            -> Event Notification
+    getENotify = 
+      leftmost . M.elems . fmap cseNotify
+
+    -- beNotify :: Behavior (Event Notification)
+    beNotify = getENotify <$> bClients
+
+
+
+
+
+
+
+
+
+
+    
+```
+
+##
+
+```haskell
+  let
+    -- getENotify :: M.Map Int ClientState
+    --            -> Event Notification
+    getENotify = 
+      leftmost . M.elems . fmap cseNotify
+
+    -- beNotify :: Behavior (Event Notification)
+    beNotify = getENotify <$> bClients
+
+    -- eTick :: Event ()
+    eTick = leftmost [
+        () <$ eOpens, () <$ eReads, () <$ eCloses
+      ]
+
+
+
+
+
+    
+```
+
+##
+
+```haskell
+  let
+    -- getENotify :: M.Map Int ClientState
+    --            -> Event Notification
+    getENotify = 
+      leftmost . M.elems . fmap cseNotify
+
+    -- beNotify :: Behavior (Event Notification)
+    beNotify = getENotify <$> bClients
+
+    -- eTick :: Event ()
+    eTick = leftmost [
+        () <$ eOpens, () <$ eReads, () <$ eCloses
+      ]
+
+    -- eeNotify :: Event (Event Notification)
+    eeNotify = beNotify <@ eTick
+
+
+    
+```
+
+##
+
+```haskell
+  let
+    -- getENotify :: M.Map Int ClientState
+    --            -> Event Notification
+    getENotify = 
+      leftmost . M.elems . fmap cseNotify
+
+    -- beNotify :: Behavior (Event Notification)
+    beNotify = getENotify <$> bClients
+
+    -- eTick :: Event ()
+    eTick = leftmost [
+        () <$ eOpens, () <$ eReads, () <$ eCloses
+      ]
+
+    -- eeNotify :: Event (Event Notification)
+    eeNotify = beNotify <@ eTick
+
+  -- eNotify :: Event Notification
+  eNotify <- switchE eeNotify
+```
 
 # Conclusion
 
