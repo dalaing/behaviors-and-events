@@ -36,14 +36,9 @@ counter eTick = accumE 0 ((+ 1) <$ eTick)
 importantWork :: Event Int -> Event String
 importantWork eCount =
   let
-    eFizz =
-      "Fizz" <$ multiple 3 eCount
-    eBuzz =
-      "Buzz" <$ multiple 5 eCount
-    eFizzBuzz =
-      unionWith (\_ _ -> "FizzBuzz")
-      eFizz
-      eBuzz
+    eFizz = "Fizz" <$ multiple 3 eCount
+    eBuzz = "Buzz" <$ multiple 5 eCount
+    eFizzBuzz = unionWith (++) eFizz eBuzz
   in
     eFizzBuzz
 

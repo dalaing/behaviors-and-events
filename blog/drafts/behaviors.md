@@ -1,6 +1,6 @@
 ---
 title: Behaviors
-published: 2016-09-01 12:00:00+10:00
+published: 2016-10-01 12:00:00+10:00
 ---
 
 [Previously](./echo.html) we developed a simple command line program and refactored it to make parts of it more reusable and testable.
@@ -10,7 +10,14 @@ published: 2016-09-01 12:00:00+10:00
 The next piece of the `FRP` puzzle is behaviors.
 Where events are only defined at particular points in time, behaviors are defined for all points of time.
 
-The type has a single parameter:
+The documentation mentions that the semantics of an `Behavior a` allows you to view it as being similar to `Time -> a`.
+In contrast to events, behaviors have values for every point in time.
+
+This lets us use behaviors to model program state, since the program state is a value that changes over time.
+We can also pass them as arguments as something like a 'live variable' or a 'first-class observer'.
+All in good time.
+
+The type in `reactive-banana` is:
 ```haskell
 data Behavior a
 ```
@@ -20,20 +27,48 @@ instance Functor Behavior
 instance Applicative Behavior
 ```
 
-The documentation mentions that the semantics of an `Behavior a` allows you to view it as being similar to `Time -> a`.
+The `Applicative` instance means that we can create a behavior that has a constant value across all times using `pure`, and we can stitch them together using `<*>`.
 
-The `Applicative` instance means that we can create a behavior that has a constant value across all times using `pure`.
-
-A more interesting way to create a behavior is with `stepper`:
 ```haskell
-stepper :: MonadMoment m => a -> Event a -> m (Behavior a)
-stepper x eX = ...
+-- bInt and bString defined elsewhere
+
+bBool :: Behavior Bool
+bBool = pure True
+
+bTriple :: Behavior (Int, String, Bool)
+bTriple = (,,) <$> bInt <*> bString <*> bBool
 ```
 
-This will create a `Behavior` that starts with the value `x`, and then changes its to the value the event `eX` every time that event occurs.
-This change will not be observable until the next logical clock tick _after_ the event `eX`.
+The more common (and more interesting) way to create a behavior is with `stepper`:
+```haskell
+stepper :: MonadMoment m => a -> Event a -> m (Behavior a)
+stepper x eNext = ...
+```
 
-We always sample the values of behaviors using events, which give us the logical clock tick to use to sample the behaviour.
+This will create a `Behavior` that starts with the value `x`, and then changes its to the value the event `eNext` every time that event occurs.
+This change will not be observable until the next logical clock tick _after_ the event `eNext`.
+
+The time delay for the change stands out in the example diagrams:
+<table><tr><td width=50%>
+```haskell
+holder :: MonadMoment m 
+       => Event Colour 
+       -> m (Behavior Colour)
+holder eInput = do
+  eOutput <-
+    stepper Blue eInput
+  return eOutput
+```
+</td><td width=50%>
+![](../images/stepper.png)\
+</td></tr></table>
+
+If we're viewing this as state manipulation, then we should be able to use a `State` monad simile.
+Imagine that we've identified a handful of conditions that would cause us to use `put` at various times and with various values.
+We already have the tools to combine all of those calls to `put` into the `eInput` event - at which point we could use `stepper` to create a `Behavior` that models all of the changes to this particular piece of state over time.
+
+We commonly build `Behavior`s using `Event`s, and it turns out that we also sample `Behavior`s using `Event`s.
+The `Event` is what give us the logical clock tick to use to sample the `Behavior`.
 
 This is commonly done with some infix operators:
 ```haskell
@@ -51,65 +86,243 @@ or
 f <$> bBehavior1 <*> bBehavior2 <@ eEventThatIsJustActingAsATrigger
 ```
 
+We can demonstrate these pictorially.
+
+Sometimes we want to involve the value of the `Event`:
+<table><tr><td width=50%>
+```haskell
+mixer :: Behavior Colour 
+      -> Event Colour
+      -> Event Colour
+mixer bInput eInput =
+  let
+    eOutput = 
+      mix <$> 
+        bInput <@> 
+        eInput
+  in
+    eOutput
+```
+</td><td width=50%>
+![](../images/sample-mix.png)\
+</td></tr></table>
+and sometimes we don't:
+<table><tr><td width=50%>
+```haskell
+tagger :: Behavior Colour 
+       -> Event ()
+       -> Event Colour
+tagger bInput eInput =
+  let
+    eOutput = 
+      bInput <@ eInput
+  in
+    eOutput
+```
+</td><td width=50%>
+![](../images/sample-const.png)\
+</td></tr></table>
+
+If we were squinting that the `Event` we used with `stepper` and imagining that it was the aggregation of all of our uses of `put` in the `State` monad, then we can view the `Event` we use with `<@` as the aggregation of some uses of `get`.
+
+The last major use of `Behavior`s is to filter `Event`s, where the filter condition that changes over time:
+```haskell
+whenE       :: Behavior Bool -> Event a -> Event a
+filterApply :: Behavior (a -> Bool) -> Event a -> Event a
+```
+
+Assuming `True` is dark gray and `False` is light gray, we would have:
+<table><tr><td width=50%>
+```haskell
+sifter :: Behavior Bool 
+       -> Event Colour
+       -> Event Colour
+sifter bInput eInput =
+  let
+    eOutput = 
+      whenE bInput eInput
+  in
+    eOutput
+```
+</td><td width=50%>
+![](../images/whenE.png)\
+</td></tr></table>
+
 What has this given us?
 It has given us a way to manage state inside an FRP system.
 
-Say we want something like `Reader`.
-We can create a `Behavior` using `pure` to get something similar.
-The equivalent of using `ask` is to sample the `Behavior` using `<@` and an event that indicates when you would like to get the value out.
+We have a lot of freedom here.
 
-If you want something like `State`, you can create your `Behavior` using `stepper`.
-In that case sampling the value with `<@` is like `get` and the input event is acting like `put`.
+We can develop several `Behavior`s and combine them together with the `Applicative` typeclass.
+The `Behavior`s don't need to know anything about each other - maybe they're all change at the same points in time, maybe they're changing at complete distinct points in time.
 
-The biggest change happening here comes from the fact that events can fire multiple times, and we can combine multiple events into the one event.
-This means that we have the option to specify all of the usages of `put` for the our `State` over its entire lifetime, all in the one call.
-We can take care of all of our usages of `get` with one function as well.
+We can sample these `Behavior`s with any `Event`s that we have, and again we don't know and don't care if the points in time the `Event`s fire at correspond to the points in time where the `Behavior` is changing.
 
-An example of putting all of our `put`-equivalents in on basket s describing whether a user is logged in or not:
+The independence and composability of the pieces are what makes FRP fun to work with.
+
+## An example
+
+We're going to model a user logging in and logging out of a website.
+The goal is track whether they are currently logged in or logged out.
+
+We'll start with a data type for the login state:
 ```haskell
-logInHandler :: MonadMoment m => Event () -> Event () -> m (Behavior LogInState)
-logInHandler eLogIn eLogOut =
-  stepper LoggedOut . leftmost $ [
-      -- change the state to LoggedIn when the user logs in
-      LoggedIn  <$ eLogIn
-      -- change the state to LoggedOut when the user logs out
-    , LoggedOut <$ eLogOut
-    ]
+data LoginState = 
+    LoggedIn
+  | LoggedOut
+  deriving (Eq, Ord, Show)
+```
+and a pair of data types for the inputs and outputs of our component:
+```haskell
+data LoginInputs = LoginInputs {
+    lieLogIn  :: Event ()
+  , lieLogOut :: Event ()
+  }
+  
+data LoginOutputs :: LoginOutputs {
+    lobState :: Behavior LoginState
+  }
 ```
 
-While we have that option, we don't have to take it.
-If it makes it easier to define the event graph, we can have one use of `<@` that specifies all of our usages of `get` for non-authenticated users and another use of `<@` for the authenticated users.
-
-We can add some `get`-equivalents to the above example to check for errors:
+From there we just need to use `leftmost` to combine the events and `stepper` to turn them into a behavior:
 ```haskell
-logIn :: LogInState -> Either LogInError LogInState
+logInHandler :: MonadMoment m => LogInInputs -> m LoginOutputs
+logInHandler (LogInEvents eLogIn eLogOut) = do
+  bState <- stepper LoggedOut . leftmost $ [
+      LoggedIn  <$ eLogIn                                      -- (1)
+    , LoggedOut <$ eLogOut                                     -- (2)
+    ]
+  return $ LoginOutputs bState
+```
+Notes:
+
+1. Change the state to `LoggedIn` when the user logs in.
+2. Change the state to `LoggedOut` when the user logs out.
+
+All is well at this point.
+
+If we want to add more meat to the problem, we can disallow logging in while already logged in or logging out while already logged out.
+
+We add a data type for the kinds of errors we might see:
+```haskell
+data LoginError =
+    AlreadyLoggedIn
+  | NotLoggedIn
+  deriving (Eq, Ord, Show)
+```
+
+We also write some helper functions to work out whether we should change state or signal that an error has occurred:
+```haskell
+logIn :: LogInState -> Either LoginError LoginState
 logIn LoggedIn  = Left AlreadyLoggedIn
 logIn LoggedOut = Right LoggedIn
 
-logOut :: LogInState -> Either LogInError LogInState
+logOut :: LogInState -> Either LoginError LoginState
 logOut LoggedOut = Left NotLoggedIn
 logOut LoggedIn  = Right LoggedOut
-
--- This makes use of the RecursiveDo language extension
--- Trust me for now - I'll explain how that works later
-logInHandler :: MonadMoment m => Event () -> Event () -> m (Behavior LogInState, Event LogInError)
-logInHandler eLogIn eLogOut = mdo
-  bLogInState <- stepper LoggedOut eLogInState
-  (eLogInError, eLogInState) = split . leftmost $ [
-      logIn  <$> bLogInState <@ eLogIn
-      logOut <$> bLogInState <@ eLogOut
-    ]
-  return (bLogInState, eLogInError)
 ```
-while still being able to query the logged-in state elsewhere in the system.
 
-Since `Behavior`s are defined at all times, it means that we can sample them outside of the points in time that were used to define them.
-Perhaps that is obvious, but it means that you can define and/or compose your `Behavior`s in one library, and then sample it with `Event`s that are defined and/or composed in another library.
-Composition is a huge win.
+We add an event signaling that an error has occurred to our output:
+```haskell
+data LoginOutputs :: LoginOutputs {
+    lobState :: Behavior LoginState
+  , loeError :: Event LoginError
+  }
+```
+and we're ready to begin.
 
-There's a lot more that we can do with these pieces, and there are other ways that you can view them.
-I just thought it might be good to mention that you can view `Behavior`s as modelling state.
-Hopefully it helps people with their intuitions, before I mess with them later on.
+I'm going to go slowly through this part.
+
+We're going to make use of an extension that gets used a bit in the FRP world:
+```haskell
+{-# RecursiveDo #-}
+```
+
+This allows us to use `mdo` instead of `do` to indicate that we want to use value recursion:
+```haskell
+logInHandler :: LoginInputs -> Moment LoginOutputs
+logInHandler (LoginInputs eLogIn eLogOut) = mdo
+  ...
+  return $ LoginOutputs ??? ???
+```
+
+We want to start the user as `LoggedOut`.
+It should be possible to use `stepper` to build our `Behavior LoginState` from that and some `Event`, which we'll deal with later:
+```haskell
+logInHandler :: LoginInputs -> Moment LoginOutputs
+logInHandler (LoginInputs eLogIn eLogOut) = mdo
+  bState <- stepper LoggedOut ???
+  ...
+  return $ LoginOutputs bState ???
+```
+At this point we have one of our outputs.
+
+Now we can sample `bLoginState` in order to bring our helper functions into play:
+```haskell
+logInHandler :: LoginInputs -> Moment LoginOutputs
+logInHandler (LoginInputs eLogIn eLogOut) = mdo
+  bState <- stepper LoggedOut ???
+  ??? leftmost $ [
+      logIn  <$> bState <@ eLogIn
+    , logOut <$> bState <@ eLogOut
+    ]
+  return $ LoginOutputs bState ???
+```
+which will give us an `Event (Either LoginError LoginState)`.
+
+That can be split into an event for the case where there was an error and an event for the case where we should change the state:
+```haskell
+logInHandler :: LoginInputs -> Moment LoginOutputs
+logInHandler (LoginInputs eLogIn eLogOut) = mdo
+  bState <- stepper LoggedOut ???
+  let (eLoginError, eLoginState) = split . leftmost $ [
+        logIn  <$> bState <@ eLogIn
+      , logOut <$> bState <@ eLogOut
+      ]
+  return $ LoginOutputs bState eLoginError
+```
+which gives us our second output.
+
+Now we make use of the value recursion, and use `eLoginState` as the event that drives the call to `stepper`:
+```haskell
+logInHandler :: LoginInputs -> Moment LoginOutputs
+logInHandler (LoginInputs eLogIn eLogOut) = mdo
+  bState <- stepper LoggedOut eLoginState
+  let
+    (eLoginError, eLoginState) = split . leftmost $ [
+        logIn  <$> bState <@ eLogIn
+      , logOut <$> bState <@ eLogOut
+      ]
+  return $ LoginOutputs bState eLoginError
+```
+
+This creates a loop in our event network, but everything will be well behaved if we only recursive refer to `Behavior`s via `Event`s or to `Event`s via `Behavior`s.
+The delays in the updates to `Behavior`s appear to be part of the reason that this works out so well.
+
+Value recursion can take a little while to wrap your head around, but it's very helpful for expressing interesting problems elegantly and concisely.
+
+There are two variations on the above that are worth pointing out.
+
+If we want to use `MonadMoment`, we also need to use a `MonadFix` constraint:
+```haskell
+logInHandler :: (MonadMoment m, MonadFix m) => LoginInputs -> m LoginOutputs
+```
+
+If we want to limit the scope of the value recursion, we can use the `rec` keyword instead of `mdo`:
+```haskell
+logInHandler :: LoginInputs -> Moment LoginOutputs
+logInHandler (LoginInputs eLogIn eLogOut) = do
+  rec
+    bLogInState <- stepper LoggedOut eLogInState
+    let
+      (eLogInError, eLogInState) = split . leftmost $ [
+          logIn  <$> bLogInState <@ eLogIn
+        , logOut <$> bLogInState <@ eLogOut
+        ]
+  let 
+    notInScopeOfTheRecursion = True
+  return $ LoginOutputs bLogInState eLogInError
+```
 
 ## Message history
 ##### [(The code for this section is here)](https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part3/)

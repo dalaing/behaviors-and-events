@@ -22,38 +22,32 @@ import           Reactive.Banana.Frameworks
 import Part2.Common
 
 data Inputs = Inputs {
-    ieOpen           :: Event ()
-  , ieMessage        :: Event String
-  , ieHelp           :: Event ()
-  , ieQuit           :: Event ()
-  , ieUnknownCommand :: Event String
+    ieOpen    :: Event ()
+  , ieMessage :: Event String
+  , ieHelp    :: Event ()
+  , ieUnknown :: Event String
+  , ieQuit    :: Event ()
   }
+
+type Message = String
+type Command = String
+
+command :: String -> Either Message Command
+command ('/':xs) = Right xs
+command xs       = Left xs
 
 fanOut :: InputIO -> Inputs
 fanOut (InputIO eOpen eRead) =
   let
-    eReadNonEmpty =
-      filterE (not . null) eRead
+    (eMessage, eCommand) = split $ command <$> eRead
 
-    isMessage =
-      (/= "/") . take 1
-    eMessage =
-      filterE isMessage eReadNonEmpty
+    eHelp    =   () <$ filterE (== "help")  eCommand
+    eQuit    =   () <$ filterE (== "quit")  eCommand
 
-    isCommand =
-      (== "/") . take 1
-    eCommand =
-      fmap (drop 1) . filterE isCommand $ eReadNonEmpty
-
-    eHelp = () <$ filterE (== "help") eCommand
-    eQuit = () <$ filterE (== "quit") eCommand
-
-    commands =
-      ["help", "quit"]
-    eUnknownCommand =
-      filterE (`notElem` commands) eCommand
+    commands = ["help", "quit"]
+    eUnknown = filterE (`notElem` commands) eCommand
   in
-    Inputs eOpen eMessage eHelp eQuit eUnknownCommand
+    Inputs eOpen eMessage eHelp eUnknown eQuit
 
 data Outputs = Outputs {
     oeWrite :: [Event String]
@@ -75,7 +69,7 @@ data OpenOutput = OpenOutput { ooeWrite :: Event String }
 handleOpen :: MonadMoment m => OpenInput -> m OpenOutput
 handleOpen (OpenInput eOpen) =
   let
-    eWrite = "Hi (type /help for instructions)" <$ eOpen
+    eWrite = "Hi" <$ eOpen
   in
     return $ OpenOutput eWrite
 
@@ -89,10 +83,15 @@ handleMessage (MessageInput eMessage) =
 data HelpInput  = HelpInput  { hieHelp  :: Event () }
 data HelpOutput = HelpOutput { hoeWrite :: Event String }
 
+helpMessage :: String
+helpMessage =
+  "/help              - displays this message\n" ++
+  "/quit              - exits the program"
+
 handleHelp :: MonadMoment m => HelpInput -> m HelpOutput
 handleHelp (HelpInput eHelp) =
   let
-    eWrite = "/help displays this message\n/quit exits the program" <$ eHelp
+    eWrite = helpMessage <$ eHelp
   in
     return $ HelpOutput eWrite
 
@@ -115,30 +114,46 @@ handleQuit (QuitInput eQuit) =
 data UnknownInput  = UnknownInput  { ucieCommand :: Event String }
 data UnknownOutput = UnknownOutput { ucoeWrite   :: Event String }
 
+unknownMessage :: Command -> String
+unknownMessage cmd =
+  let
+    commandError = case cmd of
+      "" ->
+        "Command can not be an empty string."
+      cmd ->
+        "Unknown command: " ++ cmd ++ "."
+
+    helpPrompt =
+      "\nType /help for options."
+  in
+    commandError ++ helpPrompt
+
 handleUnknown :: MonadMoment m => UnknownInput -> m UnknownOutput
 handleUnknown (UnknownInput eUnknown) =
-  let
-      msg x = "Unknown command: " ++ x ++ " (type /help for instructions)"
-  in
-    return . UnknownOutput $ msg <$> eUnknown
+   return . UnknownOutput $ unknownMessage <$> eUnknown
 
-domainNetworkDescription :: Inputs -> Moment Outputs
-domainNetworkDescription (Inputs eOpen eMessage eHelp eQuit eUnknown) = do
-  OpenOutput eoWrite        <- handleOpen $ OpenInput eOpen
-  MessageOutput emWrite     <- handleMessage $ MessageInput eMessage
-  HelpOutput ehWrite        <- handleHelp $ HelpInput eHelp
-  QuitOutput eqWrite eqQuit <- handleQuit $ QuitInput eQuit
-  UnknownOutput euWrite     <- handleUnknown $ UnknownInput eUnknown
-  return $ Outputs [eoWrite, emWrite, ehWrite, eqWrite, euWrite] [eqQuit]
+networkDescription :: InputSources -> MomentIO ()
+networkDescription =
+  mkNetwork networkDescription'
 
-pureNetworkDescription :: InputIO -> Moment OutputIO
-pureNetworkDescription i = do
-  o <- domainNetworkDescription . fanOut $ i
+networkDescription' :: InputIO -> Moment OutputIO
+networkDescription' i = do
+  o <- networkDescription'' . fanOut $ i
   return $ fanIn o
+
+networkDescription'' :: Inputs -> Moment Outputs
+networkDescription'' (Inputs eOpen eMessage eHelp eUnknown eQuit) = do
+  OpenOutput eoWrite        <- handleOpen    $ OpenInput eOpen
+  MessageOutput emWrite     <- handleMessage $ MessageInput eMessage
+  HelpOutput ehWrite        <- handleHelp    $ HelpInput eHelp
+  QuitOutput eqWrite eqQuit <- handleQuit    $ QuitInput eQuit
+  UnknownOutput euWrite     <- handleUnknown $ UnknownInput eUnknown
+
+  return $ Outputs [eoWrite, emWrite, ehWrite, eqWrite, euWrite] [eqQuit]
 
 go_2_10 :: IO ()
 go_2_10 =
-  mkGo pureNetworkDescription
+  mkGo networkDescription
 
 class MonadMoment m => Testable m where
   interpretEvents :: (Event a -> m (Event b)) -> [Maybe a] -> IO [Maybe b]
@@ -196,14 +211,14 @@ instance Mergable OutputIO where
       ([Close] <$ eClose)
 
 test_2_10_io :: [Maybe InputIOCmd] -> IO [Maybe [OutputIOCmd]]
-test_2_10_io = testNetwork pureNetworkDescription
+test_2_10_io = testNetwork networkDescription'
 
 data InputsCmd =
     ICOpen
   | ICMessage String
   | ICHelp
-  | ICQuit
   | ICUnknown String
+  | ICQuit
   deriving (Eq, Ord, Show)
 
 data OutputsCmd =
@@ -235,7 +250,7 @@ instance Fannable Inputs where
       maybeUnknown _             = Nothing
       eUnknown = filterJust $ maybeUnknown <$> eIn
     in
-      return $ Inputs eOpen eMessage eHelp eQuit eUnknown
+      return $ Inputs eOpen eMessage eHelp eUnknown eQuit
 
 instance Mergable Outputs where
   type Merged Outputs = OutputsCmd
@@ -245,4 +260,4 @@ instance Mergable Outputs where
       fmap (fmap (\_ -> [OCClose])) eClose
 
 test_2_10_pure :: [Maybe InputsCmd] -> IO [Maybe [OutputsCmd]]
-test_2_10_pure = testNetwork domainNetworkDescription
+test_2_10_pure = testNetwork networkDescription''

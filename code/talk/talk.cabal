@@ -39,6 +39,7 @@ library
                      , Part3.Common.Components.Help
                      , Part3.Common.Components.Quit
                      , Part3.Common.Components.Unknown
+                     , Part3.Example0
                      , Part3.Example1
                      , Part3.Example2
                      , Part3.Example3
@@ -65,12 +66,14 @@ library
                      , Part4.Command.Components.Help
                      , Part4.Command.Components.Quit
                      , Part4.Command.Components.Unknown
+                     , Part6.Once
                      , Part5.Switch
                      , Part5.Filter
                      , Part5.SwitchInputs
                      , Part5.SwitchBlock
                      , Part7.Network1
-                     -- , Part7.Network2
+                     , Part7.Network2
+                     , Part7.Network3
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base >=4.8 && <4.9

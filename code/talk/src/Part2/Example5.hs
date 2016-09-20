@@ -39,23 +39,29 @@ mkInputSources :: IO InputSources
 mkInputSources =
   InputSources <$> mkEventSource <*> mkEventSource
 
+helpMessage :: String
+helpMessage =
+  "/help              - displays this message\n" ++
+  "/quit              - exits the program"
+
 networkDescription :: InputSources -> MomentIO ()
 networkDescription (InputSources o r) = do
   eOpen <- fromAddHandler . addHandler $ o
   eRead <- fromAddHandler . addHandler $ r
 
   let
-    eMessage = filterE (/= "/quit") eRead
-    eHelp    = () <$ filterE (== "/help") eRead
-    eQuit    = () <$ filterE (== "/quit") eRead
+    eMessage =  filterE ((/= "/") . take 1) eRead
+    eHelp    =   () <$ filterE (== "/help") eRead
+    eQuit    =   () <$ filterE (== "/quit") eRead
+    eWrite = leftmost [
+        "Hi"        <$ eOpen
+      ,                eMessage
+      , helpMessage <$ eHelp
+      , "Bye"       <$ eQuit
+      ]
 
-  reactimate $ fmap putStrLn . leftmost $ [
-      "Hi" <$ eOpen
-    , eMessage
-    , "/help displays this message\n/quit exits the program" <$ eHelp
-    , "Bye" <$ eQuit
-    ]
-  reactimate $ exitSuccess <$ eQuit
+  reactimate $ putStrLn    <$> eWrite
+  reactimate $ exitSuccess <$  eQuit
 
 eventLoop :: InputSources -> IO ()
 eventLoop (InputSources o r) = do

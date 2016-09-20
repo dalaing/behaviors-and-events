@@ -10,30 +10,61 @@ module Part2.Example7 (
   ) where
 
 import           Reactive.Banana
+import           Reactive.Banana.Frameworks
 
 import           Part2.Common
 
-pureNetworkDescription :: InputIO -> Moment OutputIO
-pureNetworkDescription (InputIO eOpen eRead) =
-  let
-    eMessage = filterE ((/= "/") . take 1) eRead
-    eCommand = fmap (drop 1) . filterE ((== "/") . take 1) $ eRead
-    eHelp    = () <$ filterE (== "help") eCommand
-    eQuit    = () <$ filterE (== "quit") eCommand
+helpMessage :: String
+helpMessage =
+  "/help              - displays this message\n" ++
+  "/quit              - exits the program"
 
-    commands        = ["help", "quit"]
-    eUnknownCommand = filterE (`notElem` commands) eCommand
+type Message = String
+type Command = String
+
+command :: String -> Either Message Command
+command ('/':xs) = Right xs
+command xs       = Left xs
+
+unknownMessage :: Command -> String
+unknownMessage cmd =
+  let
+    commandError = case cmd of
+      "" ->
+        "Command can not be an empty string."
+      cmd ->
+        "Unknown command: " ++ cmd ++ "."
+
+    helpPrompt =
+      "\nType /help for options."
+  in
+    commandError ++ helpPrompt
+
+networkDescription :: InputSources -> MomentIO ()
+networkDescription =
+  mkNetwork networkDescription'
+
+networkDescription' :: InputIO -> Moment OutputIO
+networkDescription' (InputIO eOpen eRead) =
+  let
+    (eMessage, eCommand) = split $ command <$> eRead
+
+    eHelp    =   () <$ filterE (== "help")  eCommand
+    eQuit    =   () <$ filterE (== "quit")  eCommand
+
+    commands = ["help", "quit"]
+    eUnknown = filterE (`notElem` commands) eCommand
 
     eWrite = leftmost [
-        "Hi (type /help for instructions)" <$ eOpen
-      , eMessage
-      , "/help displays this message\n/quit exits the program" <$ eHelp
-      , "Bye" <$ eQuit
-      , (\x -> "Unknown command: " ++ x ++ " (type /help for instructions)") <$> eUnknownCommand
+        "Hi"           <$  eOpen
+      ,                    eMessage
+      , helpMessage    <$  eHelp
+      , unknownMessage <$> eUnknown
+      , "Bye"          <$  eQuit
       ]
   in
     return $ OutputIO eWrite eQuit
 
 go_2_7 :: IO ()
 go_2_7 =
-  mkGo pureNetworkDescription
+  mkGo networkDescription

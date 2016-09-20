@@ -33,11 +33,11 @@ networkDescription i = do
   eRead <- fromAddHandler . addHandler $ i
 
   let
-    eMessage = filterE (/= "/quit") eRead
+    eMessage =       filterE (/= "/quit") eRead
     eQuit    = () <$ filterE (== "/quit") eRead
 
-  reactimate $ putStrLn <$> eMessage
-  reactimate $ exitSuccess <$ eQuit
+  reactimate $ putStrLn    <$> eMessage
+  reactimate $ exitSuccess <$  eQuit
 
 eventLoop :: EventSource String -> IO ()
 eventLoop i =

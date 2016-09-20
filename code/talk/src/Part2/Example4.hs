@@ -45,15 +45,16 @@ networkDescription (InputSources o r) = do
   eRead <- fromAddHandler . addHandler $ r
 
   let
-    eMessage = filterE (/= "/quit") eRead
+    eMessage =       filterE (/= "/quit") eRead
     eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite   = leftmost [
+        "Hi" <$ eOpen
+      , eMessage
+      , "Bye" <$ eQuit
+      ]
 
-  reactimate $ fmap putStrLn . leftmost $ [
-      "Hi" <$ eOpen
-    , eMessage
-    , "Bye" <$ eQuit
-    ]
-  reactimate $ exitSuccess <$ eQuit
+  reactimate $ putStrLn    <$> eWrite
+  reactimate $ exitSuccess <$  eQuit
 
 eventLoop :: InputSources -> IO ()
 eventLoop (InputSources o r) = do

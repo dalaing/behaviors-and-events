@@ -39,27 +39,55 @@ mkInputSources :: IO InputSources
 mkInputSources =
   InputSources <$> mkEventSource <*> mkEventSource
 
+helpMessage :: String
+helpMessage =
+  "/help              - displays this message\n" ++
+  "/quit              - exits the program"
+
+type Message = String
+type Command = String
+
+command :: String -> Either Message Command
+command ('/':xs) = Right xs
+command xs       = Left xs
+
+unknownMessage :: Command -> String
+unknownMessage cmd =
+  let
+    commandError = case cmd of
+      "" ->
+        "Command can not be an empty string."
+      cmd ->
+        "Unknown command: " ++ cmd ++ "."
+
+    helpPrompt =
+      "\nType /help for options."
+  in
+    commandError ++ helpPrompt
+
 networkDescription :: InputSources -> MomentIO ()
 networkDescription (InputSources o r) = do
   eOpen <- fromAddHandler . addHandler $ o
   eRead <- fromAddHandler . addHandler $ r
 
   let
-    eMessage = filterE ((/= "/") . take 1) eRead
-    eCommand = fmap (drop 1) . filterE ((== "/") . take 1) $ eRead
-    eHelp    = () <$ filterE (== "help") eCommand
-    eQuit    = () <$ filterE (== "quit") eCommand
+    (eMessage, eCommand) = split $ command <$> eRead
 
-    commands        = ["help", "quit"]
-    eUnknownCommand = filterE (`notElem` commands) eCommand
+    eHelp    =   () <$ filterE (== "help")  eCommand
+    eQuit    =   () <$ filterE (== "quit")  eCommand
 
-  reactimate $ fmap putStrLn . leftmost $ [
-      "Hi (type /help for instructions)" <$ eOpen
-    , eMessage
-    , "/help displays this message\n/quit exits the program" <$ eHelp
-    , "Bye" <$ eQuit
-    , (\x -> "Unknown command: " ++ x ++ " (type /help for instructions)") <$> eUnknownCommand
-    ]
+    commands = ["help", "quit"]
+    eUnknown = filterE (`notElem` commands) eCommand
+
+    eWrite = leftmost [
+        "Hi"                  <$  eOpen
+      ,                           eMessage
+      , helpMessage           <$  eHelp
+      , unknownMessage        <$> eUnknown
+      , "Bye"                 <$  eQuit
+      ]
+
+  reactimate $ putStrLn    <$> eWrite
   reactimate $ exitSuccess <$ eQuit
 
 eventLoop :: InputSources -> IO ()

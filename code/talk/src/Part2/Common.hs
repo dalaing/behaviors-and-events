@@ -8,6 +8,8 @@ Portability : non-portable
 module Part2.Common (
     InputIO(..)
   , OutputIO(..)
+  , InputSources(..)
+  , mkNetwork
   , mkGo
   , leftmost
   ) where
@@ -85,9 +87,9 @@ eventLoop (InputSources o r) = do
     x <- getLine
     fire r x
 
-mkGo :: MonadMomentIO m => (InputIO -> m OutputIO) -> IO ()
+mkGo :: (InputSources -> MomentIO ()) -> IO ()
 mkGo n = do
   input <- mkInputSources
-  network <- compile $ mkNetwork n input
+  network <- compile $ n input
   actuate network
   eventLoop input

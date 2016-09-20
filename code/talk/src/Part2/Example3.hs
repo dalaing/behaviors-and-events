@@ -39,14 +39,15 @@ networkDescription i = do
   eRead <- fromAddHandler . addHandler $ i
 
   let
-    eMessage = filterE (/= "/quit") eRead
+    eMessage =      filterE (/= "/quit") eRead
     eQuit    = () <$ filterE (== "/quit") eRead
+    eWrite   = leftmost [
+                 eMessage
+      , "Bye" <$ eQuit
+      ]
 
-  reactimate $ fmap putStrLn . leftmost $ [
-      eMessage
-    , "Bye" <$ eQuit
-    ]
-  reactimate $ exitSuccess <$ eQuit
+  reactimate $ putStrLn    <$> eWrite
+  reactimate $ exitSuccess <$  eQuit
 
 eventLoop :: EventSource String -> IO ()
 eventLoop i =

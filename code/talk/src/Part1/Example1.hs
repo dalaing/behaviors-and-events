@@ -31,14 +31,9 @@ multiple m =
 importantWork :: Event Int -> Event String
 importantWork eCount =
   let
-    eFizz =
-      "Fizz" <$ multiple 3 eCount
-    eBuzz =
-      "Buzz" <$ multiple 5 eCount
-    eFizzBuzz =
-      unionWith (\_ _ -> "FizzBuzz")
-      eFizz
-      eBuzz
+    eFizz = "Fizz" <$ multiple 3 eCount
+    eBuzz = "Buzz" <$ multiple 5 eCount
+    eFizzBuzz = unionWith (++) eFizz eBuzz
   in
     eFizzBuzz
 
@@ -57,17 +52,12 @@ networkDescription2 c = do
   eCount <- fromAddHandler . addHandler $ c
 
   let
-    eFizz =
-      "Fizz" <$ multiple 3 eCount
-    eBuzz =
-      "Buzz" <$ multiple 5 eCount
-    eWrite =
-      unionWith (\_ _ -> "FizzBuzz")
-      eFizz
-      eBuzz
+    eFizz = "Fizz" <$ multiple 3 eCount
+    eBuzz = "Buzz" <$ multiple 5 eCount
+    eFizzBuzz = unionWith (++) eFizz eBuzz
 
   reactimate $ (\x -> putStrLn $ "count: " ++ show x) <$> eCount
-  reactimate $ putStrLn <$> eWrite
+  reactimate $ putStrLn <$> eFizzBuzz
 
 eventStep :: EventSource Int -> Int -> IO ()
 eventStep e i = do

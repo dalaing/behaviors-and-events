@@ -10,6 +10,7 @@ module Part2.Example8 (
   ) where
 
 import           Reactive.Banana
+import           Reactive.Banana.Frameworks
 
 import Part2.Common
 
@@ -17,35 +18,29 @@ data Inputs = Inputs {
     ieOpen           :: Event ()
   , ieMessage        :: Event String
   , ieHelp           :: Event ()
-  , ieQuit           :: Event ()
   , ieUnknownCommand :: Event String
+  , ieQuit           :: Event ()
   }
+
+type Message = String
+type Command = String
+
+command :: String -> Either Message Command
+command ('/':xs) = Right xs
+command xs       = Left xs
 
 fanOut :: InputIO -> Inputs
 fanOut (InputIO eOpen eRead) =
   let
-    eReadNonEmpty =
-      filterE (not . null) eRead
+    (eMessage, eCommand) = split $ command <$> eRead
 
-    isMessage =
-      (/= "/") . take 1
-    eMessage =
-      filterE isMessage eReadNonEmpty
+    eHelp    =   () <$ filterE (== "help")  eCommand
+    eQuit    =   () <$ filterE (== "quit")  eCommand
 
-    isCommand =
-      (== "/") . take 1
-    eCommand =
-      fmap (drop 1) . filterE isCommand $ eReadNonEmpty
-
-    eHelp = () <$ filterE (== "help") eCommand
-    eQuit = () <$ filterE (== "quit") eCommand
-
-    commands =
-      ["help", "quit"]
-    eUnknownCommand =
-      filterE (`notElem` commands) eCommand
+    commands = ["help", "quit"]
+    eUnknown = filterE (`notElem` commands) eCommand
   in
-    Inputs eOpen eMessage eHelp eQuit eUnknownCommand
+    Inputs eOpen eMessage eHelp eUnknown eQuit
 
 data Outputs = Outputs {
     oeWrite :: [Event String]
@@ -61,15 +56,43 @@ fanIn (Outputs eWrites eCloses) =
   in
     OutputIO eCombinedWrites eCombinedCloses
 
-domainNetworkDescription :: MonadMoment m => Inputs -> m Outputs
-domainNetworkDescription (Inputs eOpen eMessage eHelp eQuit eUnknownCommand) =
+helpMessage :: String
+helpMessage =
+  "/help              - displays this message\n" ++
+  "/quit              - exits the program"
+
+unknownMessage :: Command -> String
+unknownMessage cmd =
+  let
+    commandError = case cmd of
+      "" ->
+        "Command can not be an empty string."
+      cmd ->
+        "Unknown command: " ++ cmd ++ "."
+
+    helpPrompt =
+      "\nType /help for options."
+  in
+    commandError ++ helpPrompt
+
+networkDescription :: InputSources -> MomentIO ()
+networkDescription =
+  mkNetwork networkDescription'
+
+networkDescription' :: InputIO -> Moment OutputIO
+networkDescription' i = do
+  o <- networkDescription'' . fanOut $ i
+  return $ fanIn o
+
+networkDescription'' :: MonadMoment m => Inputs -> m Outputs
+networkDescription'' (Inputs eOpen eMessage eHelp eUnknown eQuit) =
   let
     eWrites = [
-        "Hi (type /help for instructions)" <$ eOpen
-      , eMessage
-      , "/help displays this message\n/quit exits the program" <$ eHelp
-      , "Bye" <$ eQuit
-      , (\x -> "Unknown command: " ++ x ++ " (type /help for instructions)") <$> eUnknownCommand
+        "Hi"           <$  eOpen
+      ,                    eMessage
+      , helpMessage    <$  eHelp
+      , unknownMessage <$> eUnknown
+      , "Bye"          <$  eQuit
       ]
     eQuits = [
         eQuit
@@ -77,11 +100,6 @@ domainNetworkDescription (Inputs eOpen eMessage eHelp eQuit eUnknownCommand) =
   in
     return $ Outputs eWrites eQuits
 
-pureNetworkDescription :: InputIO -> Moment OutputIO
-pureNetworkDescription i = do
-  o <- domainNetworkDescription . fanOut $ i
-  return $ fanIn o
-
 go_2_8 :: IO ()
 go_2_8 =
-  mkGo pureNetworkDescription
+  mkGo networkDescription
