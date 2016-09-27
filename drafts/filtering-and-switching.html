@@ -1,0 +1,104 @@
+<!DOCTYPE html> 
+<html lang="en">
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Dave Laing - Filtering and switching</title>
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap.min.css">
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap-theme.min.css">
+        <link rel="stylesheet" href="../css/custom.css">
+        <link rel="stylesheet" href="../css/syntax.css">
+        <link rel="alternate" type="application/atom+xml" title="Atom - A Series on Behaviors and Events" href="../atom.xml" />
+        <link rel="alternate" type="application/rss+xml" title="RSS - A series on behaviours and events" href="../rss.xml" />
+    </head>
+    <body>
+        <nav class="navbar navbar-default navbar-static-top">
+        <div class="container">
+        <div class="navbar-header">
+            <div class="navbar-brand">
+                <a href="../">A Series on Behaviors and Events</a>
+            </div>
+            <ul class="nav navbar-nav">
+                <li role="presentation"><a href="http://dlaing.org">Back to my main site</a></li>
+            </ul>
+        </div>
+
+        </div>
+        </nav>
+
+        <div class="container">
+            <div class="panel panel-default">
+    <div class="panel-heading">
+        <h3 class="panel-title"><a href="../drafts/filtering-and-switching.html">Filtering and switching</a></h3>
+    </div>
+    <div class="panel-body">
+        <p><a href="./commands.html">Previously</a> we went through the two main components that will take care of interacting with individual users of our chat server.</p>
+<h1 id="filtering-and-switching">Filtering and switching</h1>
+<p>We have two components at the moment.</p>
+<p>One for gather the users name, via this interface:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">NameInput</span> <span class="fu">=</span> <span class="dt">NameInput</span> {
+<span class="ot">    nieOpen     ::</span> <span class="dt">Event</span> ()
+  ,<span class="ot"> nieRead     ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> nibGreeting ::</span> <span class="dt">Behavior</span> <span class="dt">String</span>
+  ,<span class="ot"> nibNames    ::</span> <span class="dt">Behavior</span> (<span class="dt">S.Set</span> <span class="dt">User</span>)
+  }
+
+<span class="kw">data</span> <span class="dt">NameOutput</span> <span class="fu">=</span> <span class="dt">NameOutput</span> {
+<span class="ot">    noeWrite ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> noeName  ::</span> <span class="dt">Event</span> <span class="dt">User</span>
+  }</code></pre></div>
+<p>and one for processing commands, using this interface:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">CommandInput</span> <span class="fu">=</span> <span class="dt">CommandInput</span> {
+<span class="ot">    cieOpen   ::</span> <span class="dt">Event</span> ()
+  ,<span class="ot"> cieRead   ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> cieNotify ::</span> <span class="dt">Event</span> <span class="dt">Notification</span>
+  ,<span class="ot"> cibNames  ::</span> <span class="dt">Behavior</span> (<span class="dt">S.Set</span> <span class="dt">User</span>)
+  ,<span class="ot"> cibName   ::</span> <span class="dt">Behavior</span> <span class="dt">User</span>
+  }
+
+<span class="kw">data</span> <span class="dt">CommandOutput</span> <span class="fu">=</span> <span class="dt">CommandOutput</span> {
+<span class="ot">    coeWrite  ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> coeClose  ::</span> <span class="dt">Event</span> ()
+  ,<span class="ot"> coeNotify ::</span> <span class="dt">Event</span> <span class="dt">Notification</span>
+  ,<span class="ot"> coeKick   ::</span> <span class="dt">Event</span> <span class="dt">User</span>
+  }</code></pre></div>
+<p>What we need to do is to build an event network such that once a valid name has been entered, we stop processing potential names and start processing commands. We also need to be able to use the <code>Event User</code> output of the name processing component to set up a <code>Behavior User</code> as input to the command processing component.</p>
+<h2 id="filtering-the-inputs">Filtering the inputs</h2>
+<h2 id="switching-the-outputs">Switching the outputs</h2>
+<h2 id="switching-the-components">Switching the components</h2>
+<h2 id="switching-back-and-forth">Switching back and forth</h2>
+<p>TODO talk about a hypothetical /nick command that would bring you back to the name phase</p>
+<h2 id="next-up">Next up</h2>
+<p>TODO GC interlude</p>
+    </div>
+    
+    <div class="panel-footer">
+        <h5>Posted on September  1, 2016 </h5>
+    </div>
+    
+</div>
+
+            <div class="row">
+                <div class="col-md-5"> Site proudly generated by <a href="http://jaspervdj.be/hakyll">Hakyll</a> </div>
+                <div class="col-md-7">
+                    This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International License</a>
+                    <a rel="license" href="http://creativecommons.org/licenses/by/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/88x31.png" /></a>
+                </div>
+            </div>
+        </div>
+
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/js/bootstrap.min.js"></script>
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-59162164-1', 'auto');
+  ga('send', 'pageview');
+</script>
+
+    </body>
+</html>

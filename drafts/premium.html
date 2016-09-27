@@ -1,0 +1,433 @@
+<!DOCTYPE html> 
+<html lang="en">
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Dave Laing - premium</title>
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap.min.css">
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap-theme.min.css">
+        <link rel="stylesheet" href="../css/custom.css">
+        <link rel="stylesheet" href="../css/syntax.css">
+        <link rel="alternate" type="application/atom+xml" title="Atom - A Series on Behaviors and Events" href="../atom.xml" />
+        <link rel="alternate" type="application/rss+xml" title="RSS - A series on behaviours and events" href="../rss.xml" />
+    </head>
+    <body>
+        <nav class="navbar navbar-default navbar-static-top">
+        <div class="container">
+        <div class="navbar-header">
+            <div class="navbar-brand">
+                <a href="../">A Series on Behaviors and Events</a>
+            </div>
+            <ul class="nav navbar-nav">
+                <li role="presentation"><a href="http://dlaing.org">Back to my main site</a></li>
+            </ul>
+        </div>
+
+        </div>
+        </nav>
+
+        <div class="container">
+            <div class="panel panel-default">
+    <div class="panel-heading">
+        <h3 class="panel-title"><a href="../drafts/premium.html">premium</a></h3>
+    </div>
+    <div class="panel-body">
+        <h2 id="a-premium-echo-application">A premium echo application</h2>
+<h5 id="the-code-for-this-section-is-here"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part3/Account/">(The code for this section is here)</a></h5>
+<p>The next post is going to be pushing us towards the chat server functionality that we’re after.</p>
+<p>Before I start that earnest, I’m going to develop a whimsical feature in this section to demonstrate some of the options we have for filtering events with behaviors.</p>
+<p>As a prequel to our tale, assume that we’ve been tracking how many messages a user sends during their interaction with our application, and that we let them know about it when they quit.</p>
+<p>The data structures are simple:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">CounterInput</span> <span class="fu">=</span> <span class="dt">CounterInput</span> {
+<span class="ot">    cieMessage ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> cieQuit    ::</span> <span class="dt">Event</span> ()
+  }
+
+<span class="kw">data</span> <span class="dt">CounterOutput</span> <span class="fu">=</span> <span class="dt">CounterOutput</span> {
+<span class="ot">    coeMessage ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  }</code></pre></div>
+<p>and the component is use <code>accumB</code> and <code>&lt;@</code> to achieve the desired functionality.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">handleCounter ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">CounterInput</span> <span class="ot">-&gt;</span> m <span class="dt">CounterOutput</span>
+handleCounter (<span class="dt">CounterInput</span> eMessage eQuit) <span class="fu">=</span> <span class="kw">do</span>
+  bLines <span class="ot">&lt;-</span> accumB <span class="dv">0</span> ((<span class="fu">+</span> <span class="dv">1</span>) <span class="fu">&lt;$</span> eMessage)
+  <span class="kw">let</span>
+    f l <span class="fu">=</span> show l <span class="fu">++</span> <span class="st">&quot; messages sent&quot;</span>
+    eOut <span class="fu">=</span> f <span class="fu">&lt;$&gt;</span> bLines <span class="fu">&lt;@</span> eQuit
+  return <span class="fu">$</span> <span class="dt">CounterOutput</span> eOut</code></pre></div>
+<p>This integrates well with our existing network:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">domainNetworkDescription ::</span> <span class="dt">Inputs</span> <span class="ot">-&gt;</span> <span class="dt">Moment</span> <span class="dt">Outputs</span>
+domainNetworkDescription (<span class="dt">Inputs</span> eOpen eMessage eHelp eQuit eUnknown) <span class="fu">=</span> <span class="kw">do</span>
+  <span class="dt">OpenOutput</span> eoWrite        <span class="ot">&lt;-</span> handleOpen <span class="fu">$</span> <span class="dt">OpenInput</span> eOpen
+  <span class="dt">CounterOutput</span> ecWrite     <span class="ot">&lt;-</span> handleCounter <span class="fu">$</span> <span class="dt">CounterInput</span> eMessage eQuit 
+  <span class="dt">MessageOutput</span> emWrite     <span class="ot">&lt;-</span> handleMessage <span class="fu">$</span> <span class="dt">MessageInput</span> eMessage
+  <span class="dt">HelpOutput</span> ehWrite        <span class="ot">&lt;-</span> handleHelp <span class="fu">$</span> <span class="dt">HelpInput</span> eHelp
+  <span class="dt">QuitOutput</span> eqWrite eqQuit <span class="ot">&lt;-</span> handleQuit <span class="fu">$</span> <span class="dt">QuitInput</span> eQuit
+  <span class="dt">UnknownOutput</span> euWrite     <span class="ot">&lt;-</span> handleUnknown <span class="fu">$</span> <span class="dt">UnknownInput</span> eUnknown
+  return <span class="fu">$</span> 
+    <span class="dt">Outputs</span> [eoWrite, ecWrite ,emWrite, ehWrite, eqWrite, euWrite] [eqQuit]</code></pre></div>
+<p>Our story begins in earnest, as many stories often do, when someone decided to try to monetize something without first trying to understand if there was a market for it.</p>
+<p>This immediately led to two different account types for our users:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">AccountType</span> <span class="fu">=</span>
+    <span class="dt">Plebian</span>
+  <span class="fu">|</span> <span class="dt">Premium</span>
+  <span class="kw">deriving</span> (<span class="dt">Eq</span>, <span class="dt">Ord</span>, <span class="dt">Show</span>)</code></pre></div>
+<p>and the ability to upgrade an account:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">UpgradeInput</span>  <span class="fu">=</span> <span class="dt">UpgradeInput</span>  {<span class="ot"> uieUpgrade ::</span> <span class="dt">Event</span> () }
+<span class="kw">data</span> <span class="dt">UpgradeOutput</span> <span class="fu">=</span> <span class="dt">UpgradeOutput</span> {<span class="ot"> uobAccount ::</span> <span class="dt">Behavior</span> <span class="dt">AccountType</span> }
+
+<span class="ot">handleUpgrade ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">UpgradeInput</span> <span class="ot">-&gt;</span> m <span class="dt">UpgradeOutput</span>
+handleUpgrade (<span class="dt">UpgradeInput</span> eUpgrade) <span class="fu">=</span> <span class="kw">do</span>
+  bAccount <span class="ot">&lt;-</span> stepper <span class="dt">Plebian</span> (<span class="dt">Premium</span> <span class="fu">&lt;$</span> eUpgrade)
+  return <span class="fu">$</span> <span class="dt">UpgradeOutput</span> bAccount</code></pre></div>
+<p>The cunning plan is to limit <code>Plebian</code> users to a certain number of messages per interaction with our application, while <code>Premium</code> users can send an unlimited number of messages.</p>
+<p>If a <code>Plebian</code> user reaches the hard limit, the application will print something and exit. There will also be a soft limit, which will remind the user that they can upgrade. Marketing wanted to bug the user every second message, but we told them there were technical reasons why that wasn’t feasible.</p>
+<p>We’re going to start with a soft limit of 5 messages and a hard limit of 10 messages.</p>
+<p>We know what we want to do once we reach the various limits, and can encapsulate that:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">LimitEvents</span> <span class="fu">=</span> <span class="dt">LimitEvents</span> {
+<span class="ot">    lieSoftLimit ::</span> <span class="dt">Event</span> ()
+  ,<span class="ot"> lieHardLimit ::</span> <span class="dt">Event</span> ()
+  }
+
+<span class="kw">data</span> <span class="dt">LimitOutput</span> <span class="fu">=</span> <span class="dt">LimitOutput</span> {
+<span class="ot">    loeWrite ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> loeQuit  ::</span> <span class="dt">Event</span> ()
+  }
+
+<span class="ot">translateLimitEvents ::</span> <span class="dt">LimitEvents</span> <span class="ot">-&gt;</span> <span class="dt">LimitOutput</span>
+translateLimitEvents (<span class="dt">LimitEvents</span> eSoftLimit eHardLimit) <span class="fu">=</span>
+  <span class="kw">let</span>
+    eSoftLimitMessage <span class="fu">=</span>
+      <span class="st">&quot;You are using a Plebian account.  Consider upgrading to a Premium account for unlimited messages.&quot;</span> <span class="fu">&lt;$</span> eSoftLimit
+    eHardLimitMessage <span class="fu">=</span>
+      <span class="st">&quot;You have reached your message limit for a Plebian account, please upgrade.&quot;</span> <span class="fu">&lt;$</span> eHardLimit
+    eMessage <span class="fu">=</span>
+      leftmost [
+          eHardLimitMessage
+        , eSoftLimitMessage
+        ]
+    eQuit <span class="fu">=</span>
+      eHardLimit
+  <span class="kw">in</span>
+    <span class="dt">LimitOutput</span> eMessage eQuit</code></pre></div>
+<p>Once we work out how to create <code>LimitEvents</code> values, we’ll have something like this for our event network:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">domainNetworkDescription ::</span> <span class="dt">Inputs</span> <span class="ot">-&gt;</span> <span class="dt">Moment</span> <span class="dt">Outputs</span>
+domainNetworkDescription (<span class="dt">Inputs</span> eOpen eMessage eUpgrade eHelp eQuit eUnknown) <span class="fu">=</span> <span class="kw">do</span>
+  <span class="dt">OpenOutput</span> eoWrite         <span class="ot">&lt;-</span> handleOpen <span class="fu">$</span> <span class="dt">OpenInput</span> eOpen
+  <span class="dt">UpgradeOutput</span> bAccount     <span class="ot">&lt;-</span> handleUpgrade <span class="fu">$</span> <span class="dt">UpgradeInput</span> eUpgrade
+  <span class="dt">LimitOutput</span> elWrite elQuit <span class="ot">&lt;-</span> fmap translateLimitEvents <span class="fu">???</span>
+  <span class="dt">MessageOutput</span> emWrite      <span class="ot">&lt;-</span> handleMessage <span class="fu">$</span> <span class="dt">MessageInput</span> eMessage
+  <span class="dt">HelpOutput</span> ehWrite         <span class="ot">&lt;-</span> handleHelp <span class="fu">$</span> <span class="dt">HelpInput</span> eHelp
+  <span class="dt">QuitOutput</span> eqWrite eqQuit  <span class="ot">&lt;-</span> handleQuit <span class="fu">$</span> <span class="dt">QuitInput</span> eQuit
+  <span class="dt">UnknownOutput</span> euWrite      <span class="ot">&lt;-</span> handleUnknown <span class="fu">$</span> <span class="dt">UnknownInput</span> eUnknown
+  return <span class="fu">$</span> 
+    <span class="dt">Outputs</span> 
+      [eoWrite, elWrite ,emWrite, ehWrite, eqWrite, euWrite]
+      [elQuit, eqQuit]</code></pre></div>
+<p>Now we just need to work out when the limits are reached.</p>
+<p>There are few different ways that we can achieve this.</p>
+<h3 id="using-whene-with-fixed-limits">Using <code>whenE</code> with fixed limits</h3>
+<p>Given and account type and the number of messages that have been sent so far, we can write functions that indicate when we consider that a limit has been reached:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">softLimitCheck ::</span> <span class="dt">AccountType</span> <span class="ot">-&gt;</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Bool</span>
+softLimitCheck <span class="dt">Plebian</span> x <span class="fu">=</span> x <span class="ot">`mod`</span> <span class="dv">5</span> <span class="fu">==</span> <span class="dv">4</span>
+softLimitCheck <span class="dt">Premium</span> x <span class="fu">=</span> <span class="dt">False</span>
+
+<span class="ot">hardLimitCheck ::</span> <span class="dt">AccountType</span> <span class="ot">-&gt;</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Bool</span>
+hardLimitCheck <span class="dt">Plebian</span> x <span class="fu">=</span> x <span class="fu">&gt;=</span> <span class="dv">9</span>
+hardLimitCheck <span class="dt">Premium</span> x <span class="fu">=</span> <span class="dt">False</span></code></pre></div>
+<p>The soft limit function is written so that we’ll bug the user to upgrade at a particular frequency, regardless of hte hard limit.</p>
+<p>If we have behaviors carrying the current account type and the number of lines we’ve seen so far, then we can use the <code>Applicative</code> instance and the above functions to create a <code>Behavior Bool</code>.</p>
+<p>For the soft limit, this looks like:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell">bSoftLimitReached <span class="fu">=</span> softLimitCheck <span class="fu">&lt;$&gt;</span> bAccount <span class="fu">&lt;*&gt;</span> bLines</code></pre></div>
+<p>We can use a <code>Behavior Bool</code> to selectively filter events, using <code>whenE</code>:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">whenE ::</span> <span class="dt">Behavior</span> <span class="dt">Bool</span> <span class="ot">-&gt;</span> <span class="dt">Event</span> a <span class="ot">-&gt;</span> <span class="dt">Event</span> a </code></pre></div>
+<p>which only allows activations of the input event to pass through it when the behavior has value <code>True</code>.</p>
+<p>This can be used to create an event that will activate whenever we hit our soft limit:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell">eSoftLimitReached <span class="fu">=</span> () <span class="fu">&lt;$</span> whenE bSoftLimitReached eMessage</code></pre></div>
+<p>That is all the pieces we need to create the <code>LimitEvents</code> value we were after:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="co">-- see Part3.Account.Example1</span>
+<span class="kw">data</span> <span class="dt">LimitInput</span> <span class="fu">=</span> <span class="dt">LimitInput</span> {
+<span class="ot">    lieMessage ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> libAccount ::</span> <span class="dt">Behavior</span> <span class="dt">AccountType</span>
+  }
+
+<span class="ot">handleLimit ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">LimitInput</span> <span class="ot">-&gt;</span> m <span class="dt">LimitEvents</span>
+handleLimit (<span class="dt">LimitInput</span> eMessage bAccount) <span class="fu">=</span> <span class="kw">do</span>
+  bLines <span class="ot">&lt;-</span> accumB <span class="dv">0</span> ((<span class="fu">+</span> <span class="dv">1</span>) <span class="fu">&lt;$</span> eMessage)
+  <span class="kw">let</span>
+    bSoftLimitReached <span class="fu">=</span> softLimitCheck <span class="fu">&lt;$&gt;</span> bAccount <span class="fu">&lt;*&gt;</span> bLines
+    bHardLimitReached <span class="fu">=</span> hardLimitCheck <span class="fu">&lt;$&gt;</span> bAccount <span class="fu">&lt;*&gt;</span> bLines
+
+    eSoftLimitReached <span class="fu">=</span> () <span class="fu">&lt;$</span> whenE bSoftLimitReached eMessage
+    eHardLimitReached <span class="fu">=</span> () <span class="fu">&lt;$</span> whenE bHardLimitReached eMessage
+  return <span class="fu">$</span> <span class="dt">LimitEvents</span> eSoftLimitReached eHardLimitReached</code></pre></div>
+<p>This slots into our event network nicely:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">domainNetworkDescription ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">Inputs</span> <span class="ot">-&gt;</span> m <span class="dt">Outputs</span>
+domainNetworkDescription (<span class="dt">Inputs</span> eOpen eMessage eUpgrade eHelp eQuit eUnknown) <span class="fu">=</span> <span class="kw">do</span>
+  <span class="dt">OpenOutput</span> eoWrite         <span class="ot">&lt;-</span> handleOpen <span class="fu">$</span> <span class="dt">OpenInput</span> eOpen
+  <span class="dt">UpgradeOutput</span> bAccount     <span class="ot">&lt;-</span> handleUpgrade <span class="fu">$</span> <span class="dt">UpgradeInput</span> eUpgrade
+  <span class="dt">LimitOutput</span> elWrite elQuit <span class="ot">&lt;-</span> fmap translateLimitEvents <span class="fu">.</span>
+                                handleLimit <span class="fu">$</span> <span class="dt">LimitInput</span> eMessage bAccount
+  <span class="dt">MessageOutput</span> emWrite      <span class="ot">&lt;-</span> handleMessage <span class="fu">$</span> <span class="dt">MessageInput</span> eMessage
+  <span class="dt">HelpOutput</span> ehWrite         <span class="ot">&lt;-</span> handleHelp <span class="fu">$</span> <span class="dt">HelpInput</span> eHelp
+  <span class="dt">QuitOutput</span> eqWrite eqQuit  <span class="ot">&lt;-</span> handleQuit <span class="fu">$</span> <span class="dt">QuitInput</span> eQuit
+  <span class="dt">UnknownOutput</span> euWrite      <span class="ot">&lt;-</span> handleUnknown <span class="fu">$</span> <span class="dt">UnknownInput</span> eUnknown
+  return <span class="fu">$</span> 
+    <span class="dt">Outputs</span> 
+      [eoWrite, elWrite, emWrite, ehWrite, eqWrite, euWrite]
+      [elQuit, eqQuit]</code></pre></div>
+<h3 id="using-whene-with-variable-limits">Using <code>whenE</code> with variable limits</h3>
+<p>It is probably good practice to set the actual limits via behaviors rather than just hard coding them.</p>
+<p>We need to pass in those limits as behaviors:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">LimitInput</span> <span class="fu">=</span> <span class="dt">LimitInput</span> {
+<span class="ot">    lieMessage   ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> libAccount   ::</span> <span class="dt">Behavior</span> <span class="dt">AccountType</span>
+  ,<span class="ot"> libSoftLimit ::</span> <span class="dt">Behavior</span> <span class="dt">Int</span>
+  ,<span class="ot"> libHardLimit ::</span> <span class="dt">Behavior</span> <span class="dt">Int</span>
+  }</code></pre></div>
+<p>and we need to update our limit-checking functions:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">softLimitCheck ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">AccountType</span> <span class="ot">-&gt;</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Bool</span>
+softLimitCheck n <span class="dt">Plebian</span> x <span class="fu">=</span> x <span class="ot">`mod`</span> n <span class="fu">==</span> (n <span class="fu">-</span> <span class="dv">1</span>)
+softLimitCheck _ <span class="dt">Premium</span> _ <span class="fu">=</span> <span class="dt">False</span>
+
+<span class="ot">hardLimitCheck ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">AccountType</span> <span class="ot">-&gt;</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Bool</span>
+hardLimitCheck n <span class="dt">Plebian</span> x <span class="fu">=</span> x <span class="fu">&gt;=</span> (n <span class="fu">-</span> <span class="dv">1</span>)
+hardLimitCheck _ <span class="dt">Premium</span> _ <span class="fu">=</span> <span class="dt">False</span></code></pre></div>
+<p>After that, we just need to connect the new behaviors to those functions:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="co">-- see Part3.Account.Example2</span>
+<span class="ot">handleLimit ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">LimitInput</span> <span class="ot">-&gt;</span> m <span class="dt">LimitEvents</span>
+handleLimit (<span class="dt">LimitInput</span> eMessage bAccount bSoftLimit bHardLimit) <span class="fu">=</span> <span class="kw">do</span>
+  bLines <span class="ot">&lt;-</span> accumB <span class="dv">0</span> ((<span class="fu">+</span> <span class="dv">1</span>) <span class="fu">&lt;$</span> eMessage)
+  <span class="kw">let</span>
+    bSoftLimitReached <span class="fu">=</span> softLimitCheck <span class="fu">&lt;$&gt;</span> bSoftLimit <span class="fu">&lt;*&gt;</span> bAccount <span class="fu">&lt;*&gt;</span> bLines
+    bHardLimitReached <span class="fu">=</span> hardLimitCheck <span class="fu">&lt;$&gt;</span> bHardLimit <span class="fu">&lt;*&gt;</span> bAccount <span class="fu">&lt;*&gt;</span> bLines
+
+    eSoftLimitReached <span class="fu">=</span> () <span class="fu">&lt;$</span> whenE bSoftLimitReached eMessage
+    eHardLimitReached <span class="fu">=</span> () <span class="fu">&lt;$</span> whenE bHardLimitReached eMessage
+  return <span class="fu">$</span> <span class="dt">LimitEvents</span> eSoftLimitReached eHardLimitReached</code></pre></div>
+<h3 id="using-filterapply">Using <code>filterApply</code></h3>
+<p>If we need the event being filtered to take part in the decision along with some behaviours, we can use <code>filterApply</code>:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">filterApply ::</span> <span class="dt">Behavior</span> (a <span class="ot">-&gt;</span> <span class="dt">Bool</span>) <span class="ot">-&gt;</span> <span class="dt">Event</span> a <span class="ot">-&gt;</span> <span class="dt">Event</span> a </code></pre></div>
+<p>We can see this in use if we change <code>handleLimit</code> to accumulate an event rather than a behavior to track the number of messages sent so far:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="co">-- see Part3.Account.Example3</span>
+<span class="ot">handleLimit ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">LimitInput</span> <span class="ot">-&gt;</span> m <span class="dt">LimitEvents</span>
+handleLimit (<span class="dt">LimitInput</span> eMessage bAccount bSoftLimit bHardLimit) <span class="fu">=</span> <span class="kw">do</span>
+  eLines <span class="ot">&lt;-</span> accumE (<span class="fu">-</span><span class="dv">1</span>) ((<span class="fu">+</span> <span class="dv">1</span>) <span class="fu">&lt;$</span> eMessage)
+  <span class="kw">let</span>
+    bSoftLimitFn <span class="fu">=</span> softLimitCheck <span class="fu">&lt;$&gt;</span> bSoftLimit <span class="fu">&lt;*&gt;</span> bAccount
+    bHardLimitFn <span class="fu">=</span> hardLimitCheck <span class="fu">&lt;$&gt;</span> bHardLimit <span class="fu">&lt;*&gt;</span> bAccount
+
+    eSoftLimitReached <span class="fu">=</span> () <span class="fu">&lt;$</span> filterApply bSoftLimitFn eLines
+    eHardLimitReached <span class="fu">=</span> () <span class="fu">&lt;$</span> filterApply bHardLimitFn eLines
+  return <span class="fu">$</span> <span class="dt">LimitEvents</span> eSoftLimitReached eHardLimitReached</code></pre></div>
+<p>This is a bit contrived, but it’s enough to demonstrate the function.</p>
+<h3 id="using-switchb">Using <code>switchB</code></h3>
+<p>The solutions so far get the job done, but we can do better.</p>
+<p>Once we’ve upgraded our account we don’t need to count the number of messages coming through anymore - but out various solutions so far will keep counting in the background.</p>
+<p>We can change our behaviors based on various events by using <code>switchB</code>:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">switchB ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">Behavior</span> a <span class="ot">-&gt;</span> <span class="dt">Event</span> (<span class="dt">Behavior</span> a) <span class="ot">-&gt;</span> m (<span class="dt">Behavior</span> a) </code></pre></div>
+<p>The output begins as the first behavior. Whenever the event fires, the output becomes the behavior contained in the event.</p>
+<p>With <code>switchB</code> in play, we only need the limit functions for the plebian accounts:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">softLimitCheck ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Bool</span>
+softLimitCheck n x <span class="fu">=</span> x <span class="ot">`mod`</span> n <span class="fu">==</span> (n <span class="fu">-</span> <span class="dv">1</span>)
+
+<span class="ot">hardLimitCheck ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">Bool</span>
+hardLimitCheck n x <span class="fu">=</span> x <span class="fu">&gt;=</span> (n <span class="fu">-</span> <span class="dv">1</span>)</code></pre></div>
+<p>and we use <code>pure True</code> for the premium accounts.</p>
+<p>We build our <code>Behavior Bool</code> out of these pieces like this:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell">  <span class="kw">let</span>
+    bPlebianSoft <span class="fu">=</span> softLimitCheck <span class="fu">&lt;$&gt;</span> bSoftLimit <span class="fu">&lt;*&gt;</span> bLines
+    bPremiumSoft <span class="fu">=</span> pure <span class="dt">False</span>
+
+  bSoft <span class="ot">&lt;-</span> switchB bPlebianSoft (bPremiumSoft <span class="fu">&lt;$</span> eUpgrade)</code></pre></div>
+<p>The overall component looks like this:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="co">-- see Part3.Account.Example4</span>
+<span class="kw">data</span> <span class="dt">LimitInput</span> <span class="fu">=</span> <span class="dt">LimitInput</span> {
+<span class="ot">    lieUpgrade   ::</span> <span class="dt">Event</span> ()
+  ,<span class="ot"> lieMessage   ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> libSoftLimit ::</span> <span class="dt">Behavior</span> <span class="dt">Int</span>
+  ,<span class="ot"> libHardLimit ::</span> <span class="dt">Behavior</span> <span class="dt">Int</span>
+  }
+
+<span class="ot">handleLimit ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">LimitInput</span> <span class="ot">-&gt;</span> m <span class="dt">LimitEvents</span>
+handleLimit (<span class="dt">LimitInput</span> eUpgrade eMessage bSoftLimit bHardLimit) <span class="fu">=</span> <span class="kw">do</span>
+  bLines <span class="ot">&lt;-</span> accumB <span class="dv">0</span> ((<span class="fu">+</span> <span class="dv">1</span>) <span class="fu">&lt;$</span> eMessage)
+
+  <span class="kw">let</span>
+    bPlebianSoft <span class="fu">=</span> softLimitCheck <span class="fu">&lt;$&gt;</span> bSoftLimit <span class="fu">&lt;*&gt;</span> bLines
+    bPremiumSoft <span class="fu">=</span> pure <span class="dt">False</span>
+    bPlebianHard <span class="fu">=</span> hardLimitCheck <span class="fu">&lt;$&gt;</span> bHardLimit <span class="fu">&lt;*&gt;</span> bLines
+    bPremiumHard <span class="fu">=</span> pure <span class="dt">False</span>
+
+  bSoft <span class="ot">&lt;-</span> switchB bPlebianSoft (bPremiumSoft <span class="fu">&lt;$</span> eUpgrade)
+  bHard <span class="ot">&lt;-</span> switchB bPlebianHard (bPremiumHard <span class="fu">&lt;$</span> eUpgrade)
+
+  <span class="kw">let</span>
+    eSoftLimitReached <span class="fu">=</span> () <span class="fu">&lt;$</span> whenE bSoft eMessage
+    eHardLimitReached <span class="fu">=</span> () <span class="fu">&lt;$</span> whenE bHard eMessage
+  return <span class="fu">$</span> <span class="dt">LimitEvents</span> eSoftLimitReached eHardLimitReached</code></pre></div>
+<p>It’s a small win now, but it’ll become more significant as we work on more complex networks.</p>
+<p>We can also use multiple events to switch to multiple behaviors, and events which fire multiple times to jump back and forth between different behaviors - there’s a lot we can do with this stuff.</p>
+<h3 id="using-switche">Using <code>switchE</code></h3>
+<p>We can go a little further in this case using <code>switchE</code>:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">switchE ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">Event</span> (<span class="dt">Event</span> a) <span class="ot">-&gt;</span> m (<span class="dt">Event</span> a) </code></pre></div>
+<p>This uses the inner event between firings of the outer event.</p>
+<p>An example should help. In our case we’ll be using it like this:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell">eSoftLimitReached <span class="ot">&lt;-</span> switchE <span class="fu">.</span> leftmost <span class="fu">$</span> [
+    eSoftPlebianLimitReached <span class="fu">&lt;$</span> eOpen
+  , eSoftPremiumLimitReached <span class="fu">&lt;$</span> eUpgrade
+  ]</code></pre></div>
+<p>and the output will be <code>eSoftPlebianLimitReached</code> from the time <code>eOpen</code> is activated until <code>eUpgrade</code> is activated, at which point it will switch to <code>eSoftPremiumLimited</code>.</p>
+<p>It would be nice if <code>switchE</code> took an initial event to use until the first outer even fired - both because it would be useful and because it would by symmetric with <code>switchB</code> - but we do what we can with what we have.</p>
+<p>To use this, we’ll pass a few more events into our input data structure:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">LimitInput</span> <span class="fu">=</span> <span class="dt">LimitInput</span> {
+<span class="ot">    lieOpen      ::</span> <span class="dt">Event</span> ()
+  ,<span class="ot"> lieUpgrade   ::</span> <span class="dt">Event</span> ()
+  ,<span class="ot"> lieMessage   ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> libSoftLimit ::</span> <span class="dt">Behavior</span> <span class="dt">Int</span>
+  ,<span class="ot"> libHardLimit ::</span> <span class="dt">Behavior</span> <span class="dt">Int</span>
+  }</code></pre></div>
+<p>Then we’ll write three components.</p>
+<p>One of them is for use with the plebian accounts:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">handleLimitPlebian ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">LimitInput</span> <span class="ot">-&gt;</span> m <span class="dt">LimitEvents</span>
+handleLimitPlebian (<span class="dt">LimitInput</span> _ _ eMessage bSoftLimit bHardLimit) <span class="fu">=</span> <span class="kw">do</span>
+  bLines <span class="ot">&lt;-</span> accumB <span class="dv">0</span> ((<span class="fu">+</span> <span class="dv">1</span>) <span class="fu">&lt;$</span> eMessage)
+
+  <span class="kw">let</span>
+    bSoft <span class="fu">=</span> softLimitCheck <span class="fu">&lt;$&gt;</span> bSoftLimit <span class="fu">&lt;*&gt;</span> bLines
+    bHard <span class="fu">=</span> hardLimitCheck <span class="fu">&lt;$&gt;</span> bHardLimit <span class="fu">&lt;*&gt;</span> bLines
+    eSoftLimitReached <span class="fu">=</span> () <span class="fu">&lt;$</span> whenE bSoft eMessage
+    eHardLimitReached <span class="fu">=</span> () <span class="fu">&lt;$</span> whenE bHard eMessage
+
+  return <span class="fu">$</span> <span class="dt">LimitEvents</span> eSoftLimitReached eHardLimitReached</code></pre></div>
+<p>One of them is for use with the premium accounts:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">handleLimitPremium ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">LimitInput</span> <span class="ot">-&gt;</span> m <span class="dt">LimitEvents</span>
+handleLimitPremium _ <span class="fu">=</span>
+  return <span class="fu">$</span> <span class="dt">LimitEvents</span> never never</code></pre></div>
+<p>The last of them is used to switch between the two:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">handleLimit ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">LimitInput</span> <span class="ot">-&gt;</span> m <span class="dt">LimitEvents</span>
+handleLimit li<span class="fu">@</span>(<span class="dt">LimitInput</span> eOpen eUpgrade _ _ _) <span class="fu">=</span> <span class="kw">do</span>
+  <span class="dt">LimitEvents</span> eSoftPlebian eHardPlebian <span class="ot">&lt;-</span> handleLimitPlebian li
+  <span class="dt">LimitEvents</span> eSoftPremium eHardPremium <span class="ot">&lt;-</span> handleLimitPremium li
+
+  eSoftLimitReached <span class="ot">&lt;-</span> switchE <span class="fu">.</span> leftmost <span class="fu">$</span> [
+      eSoftPlebian <span class="fu">&lt;$</span> eOpen
+    , eSoftPremium <span class="fu">&lt;$</span> eUpgrade
+    ]
+
+  eHardLimitReached <span class="ot">&lt;-</span> switchE <span class="fu">.</span> leftmost <span class="fu">$</span> [
+      eHardPlebian <span class="fu">&lt;$</span> eOpen
+    , eHardPremium <span class="fu">&lt;$</span> eUpgrade
+    ]
+
+  return <span class="fu">$</span> <span class="dt">LimitEvents</span> eSoftLimitReached eHardLimitReached</code></pre></div>
+<h3 id="using-a-typeclass-for-switching">Using a typeclass for switching</h3>
+<p>We can make this a bit more convenient by introducing a typeclass to help us with switching:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">class</span> <span class="dt">Switch</span> a <span class="kw">where</span>
+<span class="ot">  switch ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">Event</span> a <span class="ot">-&gt;</span> m a</code></pre></div>
+<p>We provide instances for behaviors:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">instance</span> <span class="dt">Switch</span> (<span class="dt">Behavior</span> a) <span class="kw">where</span>
+  switch <span class="fu">=</span> switchB</code></pre></div>
+<p>and for events:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">instance</span> <span class="dt">Switch</span> (<span class="dt">Event</span> a) <span class="kw">where</span>
+  switch _ <span class="fu">=</span> switchE</code></pre></div>
+<p>We also provide a convenience function:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">switchAp ::</span> (<span class="dt">Switch</span> b, <span class="dt">MonadMoment</span> m) 
+         <span class="ot">=&gt;</span> (a <span class="ot">-&gt;</span> b) <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> <span class="dt">Event</span> a <span class="ot">-&gt;</span> m b
+switchAp f a e <span class="fu">=</span> 
+  switch (f a) (f <span class="fu">&lt;$&gt;</span> e)</code></pre></div>
+<p>We make use of these to provide an instance for <code>LimitEvents</code></p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">instance</span> <span class="dt">Switch</span> <span class="dt">LimitEvents</span> <span class="kw">where</span>
+  switch e ee <span class="fu">=</span> 
+    <span class="dt">LimitEvents</span> <span class="fu">&lt;$&gt;</span> 
+      switchAp lieSoftLimit e ee <span class="fu">&lt;*&gt;</span> 
+      switchAp lieHardLimit e ee</code></pre></div>
+<p>This makes our component easier to write and easier to read:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="co">-- see Part3.Account.Example6</span>
+<span class="ot">emptyLimitEvents ::</span> <span class="dt">LimitEvents</span>
+emptyLimitEvents <span class="fu">=</span>
+  <span class="dt">LimitEvents</span> never never
+
+<span class="ot">handleLimit ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">LimitInput</span> <span class="ot">-&gt;</span> m <span class="dt">LimitEvents</span>
+handleLimit li<span class="fu">@</span>(<span class="dt">LimitInput</span> eOpen eUpgrade _ _ _) <span class="fu">=</span> <span class="kw">do</span>
+  plebianEvents <span class="ot">&lt;-</span> handleLimitPlebian li
+  premiumEvents <span class="ot">&lt;-</span> handleLimitPremium li
+
+  switch emptyLimitEvents <span class="fu">.</span> leftmost <span class="fu">$</span> [
+      plebianEvents <span class="fu">&lt;$</span> eOpen
+    , premiumEvents <span class="fu">&lt;$</span> eUpgrade
+    ]</code></pre></div>
+<p>We still need to provide an initial object, but that is fine. Sometimes we’ll be working with objects that contain behaviors as well as events, and in those cases we’ll need that initial object in order to give the behaviors their initial values.</p>
+<p>This would change if <code>switchE</code> took an initial event to use before the first firing.</p>
+<p>The <code>Switch</code> instance for <code>Event</code> would change to match:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">instance</span> <span class="dt">Switch</span> (<span class="dt">Event</span> a) <span class="kw">where</span>
+  switch <span class="fu">=</span> switchE</code></pre></div>
+<p>and we’d no longer need to use <code>eOpen</code> to get things started:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell">  switch plebianEvents (premiumEvents <span class="fu">&lt;$</span> eUpgrade)</code></pre></div>
+<h3 id="using-observee-and-execute">Using <code>observeE</code> and <code>execute</code></h3>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">handleLimit ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">LimitInput</span> <span class="ot">-&gt;</span> m <span class="dt">LimitEvents</span>
+handleLimit li<span class="fu">@</span>(<span class="dt">LimitInput</span> eOpen eUpgrade _ _ _) <span class="fu">=</span> <span class="kw">do</span>
+  plebianEvents <span class="ot">&lt;-</span> handleLimitPlebian li
+  premiumEvents <span class="ot">&lt;-</span> handleLimitPremium li
+
+  switch emptyLimitEvents <span class="fu">.</span> leftmost <span class="fu">$</span> [
+      plebianEvents <span class="fu">&lt;$</span> eOpen
+    , premiumEvents <span class="fu">&lt;$</span> eUpgrade
+    ]</code></pre></div>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">handleLimit ::</span> <span class="dt">LimitInput</span> <span class="ot">-&gt;</span> <span class="dt">Moment</span> <span class="dt">LimitEvents</span>
+handleLimit li<span class="fu">@</span>(<span class="dt">LimitInput</span> eOpen eUpgrade _ _ _) <span class="fu">=</span> <span class="kw">do</span>
+  <span class="kw">let</span>
+    plebianEvents <span class="fu">=</span> handleLimitPlebian li
+    premiumEvents <span class="fu">=</span> handleLimitPremium li
+
+  switch emptyLimitEvents <span class="fu">.</span> observeE <span class="fu">.</span> leftmost <span class="fu">$</span> [
+      plebianEvents <span class="fu">&lt;$</span> eOpen
+    , premiumEvents <span class="fu">&lt;$</span> eUpgrade
+    ]</code></pre></div>
+<p>TODO update refactoring and behaviors to reflect the new typeclasses and code structure TODO once interpret is introduced, start using testNetwork in doctests for the various networks TODO - although this requires that we have the ability to fan in and fan out our events TODO - also means we have to be able to deal with behaviors going in and out of these things</p>
+<p>TODO clean up earlier mentions of pruning the network and GC - maybe recast in terms of blocks you can dynamically chose to be involved with the network to various degrees TODO mention timing issues with an open event, how that comes from the missing argument in switchE TODO mention onceE in other systems - is onceE e = switchE e (never &lt;$ e)?</p>
+<p>TODO mention the momentio version of interpret back where interpret first came up TODO possibly a typeclass to include things in the graph, abstract over observeE and execute TODO possibly something similar for testing</p>
+<p>TODO change Next up to link to a post on GC in reactive-banana</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">handleLimit ::</span> <span class="dt">LimitInput</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> <span class="dt">LimitEvents</span>
+handleLimit li<span class="fu">@</span>(<span class="dt">LimitInput</span> eOpen eUpgrade _ _ _) <span class="fu">=</span> <span class="kw">do</span>
+  <span class="kw">let</span>
+    plebianEvents <span class="fu">=</span> handleLimitPlebian li
+    premiumEvents <span class="fu">=</span> handleLimitPremium li
+
+  switchedLimitEvents <span class="ot">&lt;-</span> execute <span class="fu">.</span> leftmost <span class="fu">$</span> [
+      plebianEvents <span class="fu">&lt;$</span> eOpen
+    , premiumEvents <span class="fu">&lt;$</span> eUpgrade
+    ]
+
+  switch emptyLimitEvents switchedLimitEvents</code></pre></div>
+<h3 id="other-variations">Other variations</h3>
+<p>There are a few variations on this that might be interesting to play with.</p>
+<p>The first would be change the system from quitting when the hard limit is reached to just not accepting any more messages. This would allow the users to either upgrade and continue or quit on their own terms once the limit was reached.</p>
+<p>The second variation would be to start users off with a number of credits which are used when messages are sent, with a warning when credits are low and with messages not being processed once they have run out. Just don’t tell the people from marketing.</p>
+    </div>
+    
+</div>
+
+            <div class="row">
+                <div class="col-md-5"> Site proudly generated by <a href="http://jaspervdj.be/hakyll">Hakyll</a> </div>
+                <div class="col-md-7">
+                    This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International License</a>
+                    <a rel="license" href="http://creativecommons.org/licenses/by/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/88x31.png" /></a>
+                </div>
+            </div>
+        </div>
+
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/js/bootstrap.min.js"></script>
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-59162164-1', 'auto');
+  ga('send', 'pageview');
+</script>
+
+    </body>
+</html>

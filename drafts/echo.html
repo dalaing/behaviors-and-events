@@ -1,0 +1,656 @@
+<!DOCTYPE html> 
+<html lang="en">
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Dave Laing - An echo program</title>
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap.min.css">
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap-theme.min.css">
+        <link rel="stylesheet" href="../css/custom.css">
+        <link rel="stylesheet" href="../css/syntax.css">
+        <link rel="alternate" type="application/atom+xml" title="Atom - A Series on Behaviors and Events" href="../atom.xml" />
+        <link rel="alternate" type="application/rss+xml" title="RSS - A series on behaviours and events" href="../rss.xml" />
+    </head>
+    <body>
+        <nav class="navbar navbar-default navbar-static-top">
+        <div class="container">
+        <div class="navbar-header">
+            <div class="navbar-brand">
+                <a href="../">A Series on Behaviors and Events</a>
+            </div>
+            <ul class="nav navbar-nav">
+                <li role="presentation"><a href="http://dlaing.org">Back to my main site</a></li>
+            </ul>
+        </div>
+
+        </div>
+        </nav>
+
+        <div class="container">
+            <div class="panel panel-default">
+    <div class="panel-heading">
+        <h3 class="panel-title"><a href="../drafts/echo.html">An echo program</a></h3>
+    </div>
+    <div class="panel-body">
+        <p><a href="./events.html">Previously</a> we looked at how events work in FRP, and built up a little program to test it out.</p>
+<h1 id="an-echo-program">An echo program</h1>
+<p>We’re going to start small, building a command line application that echos the input it receives, and we’re going to iterate from there.</p>
+<h2 id="starting-at-the-beginning">Starting at the beginning</h2>
+<h5 id="the-code-for-this-section-is-here"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example1.hs">(The code for this section is here)</a></h5>
+<p>Given what we’re trying to achieve, our event loop is straightforward.</p>
+<p>We read a line, fire an event with the line we read, and repeat:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">eventLoop ::</span> <span class="dt">EventSource</span> <span class="dt">String</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ()
+eventLoop i <span class="fu">=</span>
+  forever <span class="fu">$</span> <span class="kw">do</span>
+    x <span class="ot">&lt;-</span> getLine
+    fire i x</code></pre></div>
+<p>The event network is probably the simplest one that we’ll see:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">networkDescription ::</span> <span class="dt">EventSource</span> <span class="dt">String</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
+networkDescription i <span class="fu">=</span> <span class="kw">do</span>
+  eRead <span class="ot">&lt;-</span> fromAddHandler <span class="fu">.</span> addHandler <span class="fu">$</span> i    <span class="co">-- (1)</span>
+
+  <span class="kw">let</span>
+    eWrite <span class="fu">=</span> eRead                            <span class="co">-- (2)</span>
+
+  reactimate <span class="fu">$</span> putStrLn <span class="fu">&lt;$&gt;</span> eWrite            <span class="co">-- (3)</span></code></pre></div>
+<p>Notes:</p>
+<ol style="list-style-type: decimal">
+<li>Register for events when we have read a line.</li>
+<li>We want to write whatever we have read.</li>
+<li>Print the line</li>
+</ol>
+<p>We glue these two together in the usual manner:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">go ::</span> <span class="dt">IO</span> ()
+go <span class="fu">=</span> <span class="kw">do</span>
+  input <span class="ot">&lt;-</span> mkEventSource
+  network <span class="ot">&lt;-</span> compile <span class="fu">$</span> networkDescription input
+  actuate network
+  eventLoop input</code></pre></div>
+<p>We can improve this program quite a bit.</p>
+<h2 id="adding-the-ability-to-quit">Adding the ability to quit</h2>
+<h5 id="the-code-for-this-section-is-here-1"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example2.hs">(The code for this section is here)</a></h5>
+<p>Let us start by adding the ability to quit the program when the user types “/quit”:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">import </span><span class="dt">System.Exit</span> (exitSuccess) 
+
+<span class="ot">networkDescription ::</span> <span class="dt">EventSource</span> <span class="dt">String</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
+networkDescription i <span class="fu">=</span> <span class="kw">do</span>
+  eRead <span class="ot">&lt;-</span> fromAddHandler <span class="fu">.</span> addHandler <span class="fu">$</span> i
+
+  <span class="kw">let</span>
+    eMessage <span class="fu">=</span>       filterE (<span class="fu">/=</span> <span class="st">&quot;/quit&quot;</span>) eRead <span class="co">-- (1)</span>
+    eQuit    <span class="fu">=</span> () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;/quit&quot;</span>) eRead
+
+  reactimate <span class="fu">$</span> putStrLn    <span class="fu">&lt;$&gt;</span> eMessage
+  reactimate <span class="fu">$</span> exitSuccess <span class="fu">&lt;$</span>  eQuit            <span class="co">-- (2)</span></code></pre></div>
+<p>Notes:</p>
+<ol style="list-style-type: decimal">
+<li>Life is simple when we only have one kind of command to deal with…</li>
+<li>This is a terrible way to exit the event loop that is driving all of this, but we’ll address that later.</li>
+</ol>
+<p>So far, so good.</p>
+<h2 id="printing-a-message-on-exit">Printing a message on exit</h2>
+<h5 id="the-code-for-this-section-is-here-2"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example3.hs">(The code for this section is here)</a></h5>
+<p>Now let’s say goodbye to the user before we go.</p>
+<p>The change to print a message on exit is pretty small:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">networkDescription ::</span> <span class="dt">EventSource</span> <span class="dt">String</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
+networkDescription i <span class="fu">=</span> <span class="kw">do</span>
+  eRead <span class="ot">&lt;-</span> fromAddHandler <span class="fu">.</span> addHandler <span class="fu">$</span> i
+
+  <span class="kw">let</span>
+    eMessage <span class="fu">=</span>       filterE (<span class="fu">/=</span> <span class="st">&quot;/quit&quot;</span>) eRead
+    eQuit    <span class="fu">=</span> () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;/quit&quot;</span>) eRead
+    eWrite   <span class="fu">=</span> leftmost [                        <span class="co">-- (1)</span>
+                 eMessage
+      , <span class="st">&quot;Bye&quot;</span> <span class="fu">&lt;$</span> eQuit 
+      ]
+
+  reactimate <span class="fu">$</span> putStrLn    <span class="fu">&lt;$&gt;</span> eWrite            <span class="co">-- (2)</span>
+  reactimate <span class="fu">$</span> exitSuccess <span class="fu">&lt;$</span>  eQuit</code></pre></div>
+<p>Notes:</p>
+<ol style="list-style-type: decimal">
+<li>We have introduced an extra event here to collect the <code>Event String</code> events that we want to be printed. There are two events as inputs to this line of code and one event as an output - this is what people are talking about when they refer to an ‘event network’ or an ‘event graph’.</li>
+<li>The benefit to having the extra node in the event graph is that it keeps the code that has to interface with <code>IO</code> simple.</li>
+</ol>
+<h2 id="printing-a-greeting">Printing a greeting</h2>
+<h5 id="the-code-for-this-section-is-here-3"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example4.hs">(The code for this section is here)</a></h5>
+<p>We’ve said goodbye, so we should probably also say hello.</p>
+<p>In order to do that, our event network is going to need to know when the program has started.</p>
+<p>We’ll add a new <code>EventSource</code> for that, and we’ll collect the <code>EventSource</code>s together into a data structure:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">InputSources</span> <span class="fu">=</span> <span class="dt">InputSources</span> {
+<span class="ot">    isOpen ::</span> <span class="dt">EventSource</span> ()
+  ,<span class="ot"> isRead ::</span> <span class="dt">EventSource</span> <span class="dt">String</span>
+  }</code></pre></div>
+<p>It’s pretty easy to build one of these:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">mkInputSources ::</span> <span class="dt">IO</span> <span class="dt">InputSources</span>
+mkInputSources <span class="fu">=</span>
+  <span class="dt">InputSources</span> <span class="fu">&lt;$&gt;</span> mkEventSource <span class="fu">&lt;*&gt;</span> mkEventSource</code></pre></div>
+<p>From the outside of the event network, we need to fire the open event from the event loop:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">eventLoop ::</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">IO</span> ()
+eventLoop (<span class="dt">InputSources</span> o r) <span class="fu">=</span> <span class="kw">do</span>
+  fire o ()
+  forever <span class="fu">$</span> <span class="kw">do</span>
+    x <span class="ot">&lt;-</span> getLine
+    fire r x</code></pre></div>
+<p>From the inside of the event network, we need to register for open events and use those events to print a greeting:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">networkDescription ::</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
+networkDescription (<span class="dt">InputSources</span> o r) <span class="fu">=</span> <span class="kw">do</span>
+  eOpen <span class="ot">&lt;-</span> fromAddHandler <span class="fu">.</span> addHandler <span class="fu">$</span> o       <span class="co">-- (1)</span>
+  eRead <span class="ot">&lt;-</span> fromAddHandler <span class="fu">.</span> addHandler <span class="fu">$</span> r
+
+  <span class="kw">let</span>
+    eMessage <span class="fu">=</span>       filterE (<span class="fu">/=</span> <span class="st">&quot;/quit&quot;</span>) eRead
+    eQuit    <span class="fu">=</span> () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;/quit&quot;</span>) eRead
+    eWrite   <span class="fu">=</span> leftmost [
+        <span class="st">&quot;Hi&quot;</span> <span class="fu">&lt;$</span> eOpen                            <span class="co">-- (2)</span>
+      , eMessage
+      , <span class="st">&quot;Bye&quot;</span> <span class="fu">&lt;$</span> eQuit
+      ]
+
+  reactimate <span class="fu">$</span> putStrLn    <span class="fu">&lt;$&gt;</span> eWrite
+  reactimate <span class="fu">$</span> exitSuccess <span class="fu">&lt;$</span>  eQuit</code></pre></div>
+<p>Notes:</p>
+<ol style="list-style-type: decimal">
+<li>We have one change to the code that interfaces between <code>IO</code> and the event network. This will be the last of those for a while.</li>
+<li>We have one change to the event network itself.</li>
+</ol>
+<p>We just need to connect all of the pieces:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">go ::</span> <span class="dt">IO</span> ()
+go <span class="fu">=</span> <span class="kw">do</span>
+  input <span class="ot">&lt;-</span> mkInputSources                        <span class="co">-- (1)</span>
+  network <span class="ot">&lt;-</span> compile <span class="fu">$</span> networkDescription input
+  actuate network
+  eventLoop input</code></pre></div>
+<p>Notes:</p>
+<ol style="list-style-type: decimal">
+<li>This is the line that changes, since we’ve added to our set of inputs.</li>
+</ol>
+<h2 id="adding-a-help-command">Adding a help command</h2>
+<h5 id="the-code-for-this-section-is-here-4"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example5.hs">(The code for this section is here)</a></h5>
+<p>Next we’re going to add a help command.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">helpMessage ::</span> <span class="dt">String</span>
+helpMessage <span class="fu">=</span> 
+  <span class="st">&quot;/help              - displays this message\n&quot;</span> <span class="fu">++</span>
+  <span class="st">&quot;/quit              - exits the program&quot;</span>
+
+<span class="ot">networkDescription ::</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
+networkDescription (<span class="dt">InputSources</span> o r) <span class="fu">=</span> <span class="kw">do</span>
+  eOpen <span class="ot">&lt;-</span> fromAddHandler <span class="fu">.</span> addHandler <span class="fu">$</span> o
+  eRead <span class="ot">&lt;-</span> fromAddHandler <span class="fu">.</span> addHandler <span class="fu">$</span> r
+
+  <span class="kw">let</span>
+    eMessage <span class="fu">=</span>  filterE ((<span class="fu">/=</span> <span class="st">&quot;/&quot;</span>) <span class="fu">.</span> take <span class="dv">1</span>) eRead <span class="co">-- (1)</span>
+    eHelp    <span class="fu">=</span>   () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;/help&quot;</span>) eRead <span class="co">-- (2)</span>
+    eQuit    <span class="fu">=</span>   () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;/quit&quot;</span>) eRead
+    eWrite <span class="fu">=</span> leftmost [
+        <span class="st">&quot;Hi&quot;</span>        <span class="fu">&lt;$</span> eOpen
+      ,                eMessage
+      , helpMessage <span class="fu">&lt;$</span> eHelp                    <span class="co">-- (3)</span>
+      , <span class="st">&quot;Bye&quot;</span>       <span class="fu">&lt;$</span> eQuit
+      ]
+
+  reactimate <span class="fu">$</span> putStrLn    <span class="fu">&lt;$&gt;</span> eWrite
+  reactimate <span class="fu">$</span> exitSuccess <span class="fu">&lt;$</span>  eQuit</code></pre></div>
+<p>Notes:</p>
+<ol style="list-style-type: decimal">
+<li>We have more than one command now, so we work out whether or not something is a command by looking at the first character.</li>
+<li>We need to spot the help command in our inputs.</li>
+<li>We need to make the help message part of our outputs.</li>
+</ol>
+<h2 id="detecting-the-use-of-unknown-commands">Detecting the use of unknown commands</h2>
+<h5 id="the-code-for-this-section-is-here-5"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example6.hs">(The code for this section is here)</a></h5>
+<p>To top it off the functionality that we’re going to start with, we’re going to detect the use of unknown commands.</p>
+<p>We’ll introduce a helper function to split messages and commands - commands being the lines of inputs that start with a ‘/’:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">type</span> <span class="dt">Message</span> <span class="fu">=</span> <span class="dt">String</span>
+<span class="kw">type</span> <span class="dt">Command</span> <span class="fu">=</span> <span class="dt">String</span>
+
+<span class="ot">command ::</span> <span class="dt">String</span> <span class="ot">-&gt;</span> <span class="dt">Either</span> <span class="dt">Message</span> <span class="dt">Command</span>
+command (<span class="ch">'/'</span><span class="fu">:</span>xs) <span class="fu">=</span> <span class="dt">Right</span> xs
+command xs       <span class="fu">=</span> <span class="dt">Left</span> xs</code></pre></div>
+<p>and another function to give us an error message if we encounter a command that we don’t know how to handle:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">unknownMessage ::</span> <span class="dt">Command</span> <span class="ot">-&gt;</span> <span class="dt">String</span>
+unknownMessage cmd <span class="fu">=</span>
+  <span class="kw">let</span>
+    commandError <span class="fu">=</span> <span class="kw">case</span> cmd <span class="kw">of</span>
+      <span class="st">&quot;&quot;</span> <span class="ot">-&gt;</span> 
+        <span class="st">&quot;Command can not be an empty string.&quot;</span>
+      cmd <span class="ot">-&gt;</span>
+        <span class="st">&quot;Unknown command: &quot;</span> <span class="fu">++</span> cmd <span class="fu">++</span> <span class="st">&quot;.&quot;</span>
+
+    helpPrompt <span class="fu">=</span> 
+      <span class="st">&quot;\nType /help for options.&quot;</span>
+  <span class="kw">in</span>
+    commandError <span class="fu">++</span> helpPrompt</code></pre></div>
+<p>The change to the event network is larger than the previous few:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">networkDescription ::</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
+networkDescription (<span class="dt">InputSources</span> o r) <span class="fu">=</span> <span class="kw">do</span>
+  eOpen <span class="ot">&lt;-</span> fromAddHandler <span class="fu">.</span> addHandler <span class="fu">$</span> o
+  eRead <span class="ot">&lt;-</span> fromAddHandler <span class="fu">.</span> addHandler <span class="fu">$</span> r
+
+  <span class="kw">let</span>
+    (eMessage, eCommand) <span class="fu">=</span> split <span class="fu">$</span> command <span class="fu">&lt;$&gt;</span> eRead <span class="co">-- (1)</span>
+
+    eHelp    <span class="fu">=</span>   () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;help&quot;</span>)  eCommand
+    eQuit    <span class="fu">=</span>   () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;quit&quot;</span>)  eCommand
+
+    commands <span class="fu">=</span> [<span class="st">&quot;help&quot;</span>, <span class="st">&quot;quit&quot;</span>]
+    eUnknown <span class="fu">=</span> filterE (<span class="ot">`notElem`</span> commands) eCommand <span class="co">-- (2)</span>
+
+    eWrite <span class="fu">=</span> leftmost [
+        <span class="st">&quot;Hi&quot;</span>                  <span class="fu">&lt;$</span>  eOpen
+      ,                           eMessage
+      , helpMessage           <span class="fu">&lt;$</span>  eHelp
+      , unknownCommandMessage <span class="fu">&lt;$&gt;</span> eUnknown           <span class="co">-- (3)</span>
+      , <span class="st">&quot;Bye&quot;</span>                 <span class="fu">&lt;$</span>  eQuit
+      ]
+
+  reactimate <span class="fu">$</span> putStrLn    <span class="fu">&lt;$&gt;</span> eWrite
+  reactimate <span class="fu">$</span> exitSuccess <span class="fu">&lt;$</span> eQuit</code></pre></div>
+<p>Notes:</p>
+<ol style="list-style-type: decimal">
+<li>There is more event network creation happening here, as <code>split</code> has one event as an input and two events as <code>outputs</code>. We don’t have to deal with the leading ‘/’ in the command processing anymore, since <code>command</code> strips that out.</li>
+<li>Again, we spot the event of interest as it flows into our event network…</li>
+<li>… and we make sure that the relevant output flows out of our graph when that happens.</li>
+</ol>
+<h2 id="separating-out-the-io">Separating out the IO</h2>
+<h5 id="from-this-point-on-some-of-the-common-pieces-of-code-have-been-pulled-out-and-placed-here"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Common.hs">(From this point on, some of the common pieces of code have been pulled out and placed here)</a></h5>
+<h5 id="the-code-for-this-section-is-here-6"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example7.hs">(The code for this section is here)</a></h5>
+<p>We are currently doing IO whenever we like in our event network.</p>
+<p>This can be <em>really</em> handy in some circumstances, but it can be a bit of a burden if you have an event network that you want to test.</p>
+<p>In aid of that, we’re going to separate out the bits of the event network that deal with IO and the bits of the event network that are pure.</p>
+<p>We did that a little bit in the first post, although it was done in a pretty ad-hoc manner.</p>
+<p>For the inputs, the only IO that we’re doing is registering the event handlers. We can can take care of that with a data structure and a function to populate it:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">InputIO</span> <span class="fu">=</span> <span class="dt">InputIO</span> {
+<span class="ot">    ioeOpen ::</span> <span class="dt">Event</span> ()
+  ,<span class="ot"> ioeRead ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  }
+
+<span class="ot">handleInput ::</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> <span class="dt">InputIO</span>
+handleInput (<span class="dt">InputSources</span> iso isr) <span class="fu">=</span> <span class="kw">do</span>
+  eOpen <span class="ot">&lt;-</span> fromAddHandler <span class="fu">.</span> addHandler <span class="fu">$</span> iso
+  eRead <span class="ot">&lt;-</span> fromAddHandler <span class="fu">.</span> addHandler <span class="fu">$</span> isr
+  return <span class="fu">$</span> <span class="dt">InputIO</span> eOpen eRead</code></pre></div>
+<p>The outputs all caused by <code>reactimate</code> and occur in the <code>MomentIO</code> monad. We handle this in a similar fashion to how we packaged up the inputs:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">OutputIO</span> <span class="fu">=</span> <span class="dt">OutputIO</span> {
+<span class="ot">    ioeWrite ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> ioeClose ::</span> <span class="dt">Event</span> ()
+  }
+
+<span class="ot">handleOutput ::</span> <span class="dt">OutputIO</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
+handleOutput (<span class="dt">OutputIO</span> eWrite eClose) <span class="fu">=</span> <span class="kw">do</span>
+  reactimate <span class="fu">$</span> putStrLn <span class="fu">&lt;$&gt;</span> eWrite
+  reactimate <span class="fu">$</span> exitSuccess <span class="fu">&lt;$</span> eClose</code></pre></div>
+<p>From there, we’ll write a function to package these up.</p>
+<p>We want something like this:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">mkNetwork ::</span> <span class="fu">???</span> m <span class="ot">=&gt;</span> (<span class="dt">InputIO</span> <span class="ot">-&gt;</span> m <span class="dt">OutputIO</span>) <span class="ot">-&gt;</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
+mkNetwork fn input <span class="fu">=</span> <span class="kw">do</span>
+  i <span class="ot">&lt;-</span> handleInput input
+  o <span class="ot">&lt;-</span> <span class="fu">???</span> <span class="fu">$</span> fn i
+  handleOutput o</code></pre></div>
+<p>where the typeclass constraint has instances for both <code>Moment</code> and <code>MomentIO</code>.</p>
+<p>We’ve already seen:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">class</span> <span class="dt">Monad</span> m <span class="ot">=&gt;</span> <span class="dt">MonadMoment</span> m <span class="kw">where</span>
+<span class="ot">  liftMoment ::</span> <span class="dt">Moment</span> a <span class="ot">-&gt;</span> m a</code></pre></div>
+<p>with instances for <code>Moment</code> and <code>MomentIO</code>.</p>
+<p>This is used that the various combinators can be written once in terms of <code>Moment</code> and will work in either pure event networks - the <code>Moment</code> monad - or in event networks that also do some IO - the <code>MomentIO</code> monad.</p>
+<p>It is for converting a common input to a parametised output.</p>
+<p>We have the opposite problem here - we want to convert a parametised input to a common output.</p>
+<p>So we’ll write a typeclass:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">class</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">MonadMomentIO</span> m <span class="kw">where</span>
+<span class="ot">  toMomentIO ::</span> m a <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> a</code></pre></div>
+<p>and the instances that we need:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">instance</span> <span class="dt">MonadMomentIO</span> <span class="dt">Moment</span> <span class="kw">where</span>
+  toMomentIO <span class="fu">=</span> liftMoment
+
+<span class="kw">instance</span> <span class="dt">MonadMomentIO</span> <span class="dt">MomentIO</span> <span class="kw">where</span>
+  toMomentIO <span class="fu">=</span> id</code></pre></div>
+<p>After that, we plug it in and hit the switch:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">mkNetwork ::</span> <span class="dt">MonadMomentIO</span> m <span class="ot">=&gt;</span> (<span class="dt">InputIO</span> <span class="ot">-&gt;</span> m <span class="dt">OutputIO</span>) <span class="ot">-&gt;</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
+mkNetwork fn input <span class="fu">=</span> <span class="kw">do</span>
+  i <span class="ot">&lt;-</span> handleInput input
+  o <span class="ot">&lt;-</span> toMomentIO <span class="fu">$</span> fn i
+  handleOutput o</code></pre></div>
+<p>The event network that we are currently working with could actually have the type <code>InputIO -&gt; OutputIO</code>, but we’re adding the <code>MonadMoment</code> context into that function to be able to handle a wider variety of event networks.</p>
+<p>Our network description is now free from IO:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">networkDescription' ::</span> <span class="dt">InputIO</span> <span class="ot">-&gt;</span> <span class="dt">Moment</span> <span class="dt">OutputIO</span>
+networkDescription' (<span class="dt">InputIO</span> eOpen eRead) <span class="fu">=</span>
+  <span class="kw">let</span>
+    (eMessage, eCommand) <span class="fu">=</span> split <span class="fu">$</span> command <span class="fu">&lt;$&gt;</span> eRead
+
+    eHelp    <span class="fu">=</span>   () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;help&quot;</span>)  eCommand
+    eQuit    <span class="fu">=</span>   () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;quit&quot;</span>)  eCommand
+
+    commands <span class="fu">=</span> [<span class="st">&quot;help&quot;</span>, <span class="st">&quot;quit&quot;</span>]
+    eUnknown <span class="fu">=</span> filterE (<span class="ot">`notElem`</span> commands) eCommand
+
+    eWrite <span class="fu">=</span> leftmost [
+        <span class="st">&quot;Hi&quot;</span>                  <span class="fu">&lt;$</span>  eOpen
+      ,                           eMessage
+      , helpMessage           <span class="fu">&lt;$</span>  eHelp
+      , unknownCommandMessage <span class="fu">&lt;$&gt;</span> eUnknown
+      , <span class="st">&quot;Bye&quot;</span>                 <span class="fu">&lt;$</span>  eQuit
+      ]
+  <span class="kw">in</span>
+    return <span class="fu">$</span> <span class="dt">OutputIO</span> eWrite eQuit</code></pre></div>
+<p>and we can recover our old network description with:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">networkDescription ::</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
+networkDescription <span class="fu">=</span>
+  mkNetwork networkDescription'</code></pre></div>
+<p>Another option would be to give <code>networkDescription'</code> a more abstract type:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">networkDescription' ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">InputIO</span> <span class="ot">-&gt;</span> m <span class="dt">OutputIO</span> </code></pre></div>
+<p>to allow for reuse in more contexts, but that would force us to provide a concrete type immediately in:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">networkDescription ::</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
+networkDescription <span class="fu">=</span> 
+  mkNetwork <span class="fu">$</span><span class="ot"> networkDescription' ::</span> <span class="dt">InputIO</span> <span class="ot">-&gt;</span> <span class="dt">Moment</span> <span class="dt">OutputIO</span></code></pre></div>
+<p>At this point we have gone from:</p>
+<p><img src="../images/photos/stuff.jpg" width="500" alt="stuff" /></p>
+<p>to:</p>
+<p><img src="../images/photos/io.jpg" width="500" alt="io" /></p>
+<h2 id="a-little-more-separation">A little more separation</h2>
+<h5 id="the-code-for-this-section-is-here-7"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example8.hs">(The code for this section is here)</a></h5>
+<p>We’re currently not doing any IO in <code>networkDescription'</code>, but its boundaries are defined entirely by events related to IO.</p>
+<p>We can add another layer of indirection here in order to get away from having to express things in those terms.</p>
+<p>We start, as we usually do, by creating new data types.</p>
+<p>We collect the domain events that arise from reading a line:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">ReadInputs</span> <span class="fu">=</span> <span class="dt">ReadInputs</span> {
+<span class="ot">    rieMessage ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> rieHelp    ::</span> <span class="dt">Event</span> ()
+  ,<span class="ot"> rieUnknown ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> rieQuit    ::</span> <span class="dt">Event</span> ()
+  }</code></pre></div>
+<p>and in addition to that we pass through the ‘open’ event:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">Inputs</span> <span class="fu">=</span> <span class="dt">Inputs</span> {
+<span class="ot">    ieOpen ::</span> <span class="dt">Event</span> ()
+  ,<span class="ot"> iReads ::</span> <span class="dt">ReadInputs</span>
+  }</code></pre></div>
+<p>We then separate out the code the translates the IO events to domain events.</p>
+<p>We start with the reads:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">fanReads ::</span> <span class="dt">Event</span> <span class="dt">String</span> <span class="ot">-&gt;</span> <span class="dt">ReadInputs</span>
+fanReads eRead <span class="fu">=</span>
+  <span class="kw">let</span>
+    (eMessage, eCommand) <span class="fu">=</span> split <span class="fu">$</span> command <span class="fu">&lt;$&gt;</span> eRead
+
+    eHelp    <span class="fu">=</span>   () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;help&quot;</span>)  eCommand
+    eQuit    <span class="fu">=</span>   () <span class="fu">&lt;$</span> filterE (<span class="fu">==</span> <span class="st">&quot;quit&quot;</span>)  eCommand
+
+    commands <span class="fu">=</span> [<span class="st">&quot;help&quot;</span>, <span class="st">&quot;quit&quot;</span>]
+    eUnknown <span class="fu">=</span> filterE (<span class="ot">`notElem`</span> commands) eCommand
+  <span class="kw">in</span>
+    <span class="dt">ReadInputs</span> eMessage eHelp eUnknown eQuit</code></pre></div>
+<p>and then wrap that up to get the function we need:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">handleIOInput ::</span> <span class="dt">InputIO</span> <span class="ot">-&gt;</span> <span class="dt">Inputs</span>
+handleIOInput (<span class="dt">InputIO</span> eOpen eRead) <span class="fu">=</span>
+  <span class="dt">Inputs</span> eOpen (fanReads eRead)</code></pre></div>
+<p>We go through the same process with the outputs:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">WriteOutputs</span> <span class="fu">=</span> <span class="dt">WriteOutputs</span> {
+<span class="ot">    woeOpen    ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> woeMessage ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> woeHelp    ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> woeUnknown ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> woeQuit    ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  }
+
+<span class="kw">data</span> <span class="dt">Outputs</span> <span class="fu">=</span> <span class="dt">Outputs</span> {
+<span class="ot">    oWrites ::</span> <span class="dt">WriteOutputs</span>
+  ,<span class="ot"> oeClose ::</span> <span class="dt">Event</span> ()
+  }
+
+<span class="ot">mergeWrites ::</span> <span class="dt">WriteOutputs</span> <span class="ot">-&gt;</span> <span class="dt">Event</span> <span class="dt">String</span>
+mergeWrites (<span class="dt">WriteOutputs</span> eOpen eMessage eHelp eUnknown eQuit) <span class="fu">=</span>
+  <span class="kw">let</span>
+    addLine x y <span class="fu">=</span> x <span class="fu">++</span> <span class="ch">'\n'</span> <span class="fu">:</span> y
+    eCombinedWrites <span class="fu">=</span> foldr (unionWith addLine) never [
+        eOpen
+      , eMessage
+      , eHelp
+      , eUnknown
+      , eQuit
+      ]
+  <span class="kw">in</span>
+    eCombinedWrites
+
+<span class="ot">handleIOOutput ::</span> <span class="dt">Outputs</span> <span class="ot">-&gt;</span> <span class="dt">OutputIO</span>
+handleIOOutput (<span class="dt">Outputs</span> writes eClose) <span class="fu">=</span>
+  <span class="dt">OutputIO</span> (mergeWrites writes) eClose</code></pre></div>
+<p>While I was prototyping all of this I used:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">Outputs</span> <span class="fu">=</span> <span class="dt">Outputs</span> {
+<span class="ot">    oeWrite ::</span> [<span class="dt">Event</span> <span class="dt">String</span>]
+  ,<span class="ot"> oeClose ::</span> [<span class="dt">Event</span> ()]
+  }</code></pre></div>
+<p>so that I didn’t have to think about how write and close events were merged while I was working on various event networks.</p>
+<p>That made it pretty easy to add / remove / reorder the events as things were changing. Once things settled down, I switched to the version that you see above to make things a bit more explicit.</p>
+<p>We use these new data structures to simplify things event more:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">networkDescription'' ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">Inputs</span> <span class="ot">-&gt;</span> m <span class="dt">Outputs</span>
+networkDescription'' (<span class="dt">Inputs</span> eOpen (<span class="dt">ReadInputs</span> eMessage eHelp eUnknown eQuit)) <span class="fu">=</span>
+  <span class="kw">let</span>
+    eoWrite <span class="fu">=</span>           <span class="st">&quot;Hi&quot;</span> <span class="fu">&lt;$</span>  eOpen
+    emWrite <span class="fu">=</span>                    eMessage
+    ehWrite <span class="fu">=</span>    helpMessage <span class="fu">&lt;$</span>  eHelp
+    euWrite <span class="fu">=</span> unknownMessage <span class="fu">&lt;$&gt;</span> eUnknown
+    eqWrite <span class="fu">=</span>          <span class="st">&quot;Bye&quot;</span> <span class="fu">&lt;$</span>  eQuit
+    writes  <span class="fu">=</span>
+      <span class="dt">WriteOutputs</span> eoWrite emWrite ehWrite euWrite eqWrite
+  <span class="kw">in</span>
+    return <span class="fu">$</span> <span class="dt">Outputs</span> writes eQuit</code></pre></div>
+<p>which can be transformed into what we had before by using the corresponding new functions:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">networkDescription' ::</span> <span class="dt">InputIO</span> <span class="ot">-&gt;</span> <span class="dt">Moment</span> <span class="dt">OutputIO</span>
+networkDescription' i <span class="fu">=</span> <span class="kw">do</span>
+  o <span class="ot">&lt;-</span> networkDescription'' <span class="fu">.</span> handleIOInput <span class="fu">$</span> i
+  return <span class="fu">$</span> handleIOOutput o</code></pre></div>
+<p>This time we have gone from:</p>
+<p><img src="../images/photos/io.jpg" width="500" alt="io" /></p>
+<p>to:</p>
+<p><img src="../images/photos/fan.jpg" width="500" alt="fan" /></p>
+<h2 id="a-lot-more-separation">A lot more separation</h2>
+<h5 id="the-code-for-this-section-is-here-8"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example9.hs">(The code for this section is here)</a></h5>
+<p>The middle section of <code>networkDescription''</code> is still a bit of a mess. We can clean this up by componentizing the various pieces of functionality that are in play.</p>
+<p>Some of the FRP examples end up with pretty big event network all defined in the one place. That can be fine once you’re up to speed and now what you’re doing.</p>
+<p>One thing I took away from the Manning Functional Reactive Programming book was that you can clarify things a great deal by creating data types for the inputs and outputs of your logical components and pulling out the description of how the inputs relate to the outputs out of the main event network.</p>
+<p>It is even more clear if you draw up block diagrams for the components. We’re going to see some good payoffs for that kind of thinking later on in the series.</p>
+<p>What follows is overkill for this particular problem. You can always use fewer components with more going on inside each one.</p>
+<p>We’re also giving all of the components a <code>MonadMoment</code> context. Some of the changes coming later will introduce that context to various components, and adding it in now means we’ll be able to alter the components innards later without having to change the code that uses them.</p>
+<p>Some of these - in particular <code>handleMessage</code> - look pretty ridiculous. On the plus side, the various strings are encapsulated inside their components, and the program is mostly about strings so far. We’ll be altering some of these soon, and that’s where the payoff will be.</p>
+<p>We have components for handling:</p>
+<ul>
+<li>the open event:</li>
+</ul>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">OpenInput</span>  <span class="fu">=</span> <span class="dt">OpenInput</span>  {<span class="ot"> oieOpen  ::</span> <span class="dt">Event</span> () }
+<span class="kw">data</span> <span class="dt">OpenOutput</span> <span class="fu">=</span> <span class="dt">OpenOutput</span> {<span class="ot"> ooeWrite ::</span> <span class="dt">Event</span> <span class="dt">String</span> }
+
+<span class="ot">handleOpen ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">OpenInput</span> <span class="ot">-&gt;</span> m <span class="dt">OpenOutput</span>
+handleOpen (<span class="dt">OpenInput</span> eOpen) <span class="fu">=</span>
+  <span class="kw">let</span>
+    eWrite <span class="fu">=</span> <span class="st">&quot;Hi&quot;</span> <span class="fu">&lt;$</span> eOpen
+  <span class="kw">in</span>
+    return <span class="fu">$</span> <span class="dt">OpenOutput</span> eWrite</code></pre></div>
+<ul>
+<li>the message event:</li>
+</ul>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">MessageInput</span>  <span class="fu">=</span> <span class="dt">MessageInput</span>  {<span class="ot"> mieRead  ::</span> <span class="dt">Event</span> <span class="dt">String</span> } 
+<span class="kw">data</span> <span class="dt">MessageOutput</span> <span class="fu">=</span> <span class="dt">MessageOutput</span> {<span class="ot"> moeWrite ::</span> <span class="dt">Event</span> <span class="dt">String</span> }
+
+<span class="ot">handleMessage ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">MessageInput</span> <span class="ot">-&gt;</span> m <span class="dt">MessageOutput</span>
+handleMessage (<span class="dt">MessageInput</span> eMessage) <span class="fu">=</span>
+  return <span class="fu">$</span> <span class="dt">MessageOutput</span> eMessage</code></pre></div>
+<ul>
+<li>the help event:</li>
+</ul>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">HelpInput</span>  <span class="fu">=</span> <span class="dt">HelpInput</span>  {<span class="ot"> hieHelp  ::</span> <span class="dt">Event</span> () }
+<span class="kw">data</span> <span class="dt">HelpOutput</span> <span class="fu">=</span> <span class="dt">HelpOutput</span> {<span class="ot"> hoeWrite ::</span> <span class="dt">Event</span> <span class="dt">String</span> }
+
+<span class="ot">handleHelp ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">HelpInput</span> <span class="ot">-&gt;</span> m <span class="dt">HelpOutput</span>
+handleHelp (<span class="dt">HelpInput</span> eHelp) <span class="fu">=</span>
+  <span class="kw">let</span>
+    eWrite <span class="fu">=</span> helpMessage <span class="fu">&lt;$</span> eHelp
+  <span class="kw">in</span>
+    return <span class="fu">$</span> <span class="dt">HelpOutput</span> eWrite</code></pre></div>
+<ul>
+<li>the quit event:</li>
+</ul>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">QuitInput</span> <span class="fu">=</span> <span class="dt">QuitInput</span> { 
+<span class="ot">    qieQuit ::</span> <span class="dt">Event</span> ()
+  }
+
+<span class="kw">data</span> <span class="dt">QuitOutput</span> <span class="fu">=</span> <span class="dt">QuitOutput</span> { 
+<span class="ot">    qoeWrite ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> qoeQuit  ::</span> <span class="dt">Event</span> ()
+  }
+
+<span class="ot">handleQuit ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">QuitInput</span> <span class="ot">-&gt;</span> m <span class="dt">QuitOutput</span>
+handleQuit (<span class="dt">QuitInput</span> eQuit) <span class="fu">=</span>
+  <span class="kw">let</span>
+    eWrite <span class="fu">=</span> <span class="st">&quot;Bye&quot;</span> <span class="fu">&lt;$</span> eQuit
+  <span class="kw">in</span>
+    return <span class="fu">$</span> <span class="dt">QuitOutput</span> eWrite eQuit</code></pre></div>
+<ul>
+<li>and the unknown command event:</li>
+</ul>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">UnknownInput</span>  <span class="fu">=</span> <span class="dt">UnknownInput</span>  {<span class="ot"> ucieCommand ::</span> <span class="dt">Event</span> <span class="dt">String</span> }
+<span class="kw">data</span> <span class="dt">UnknownOutput</span> <span class="fu">=</span> <span class="dt">UnknownOutput</span> {<span class="ot"> ucoeWrite   ::</span> <span class="dt">Event</span> <span class="dt">String</span> }
+
+<span class="ot">handleUnknown ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">UnknownInput</span> <span class="ot">-&gt;</span> m <span class="dt">UnknownOutput</span>
+handleUnknown (<span class="dt">UnknownInput</span> eUnknown) <span class="fu">=</span>
+  return <span class="fu">.</span> <span class="dt">UnknownOutput</span> <span class="fu">$</span> unknownMessage <span class="fu">&lt;$&gt;</span> eUnknown</code></pre></div>
+<p>We can stitch all of these together like so:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">networkDescription'' ::</span> <span class="dt">Inputs</span> <span class="ot">-&gt;</span> <span class="dt">Moment</span> <span class="dt">Outputs</span>
+networkDescription'' (<span class="dt">Inputs</span> eOpen (<span class="dt">ReadInputs</span> eMessage eHelp eUnknown eQuit)) <span class="fu">=</span> <span class="kw">do</span>
+  <span class="dt">OpenOutput</span> eoWrite        <span class="ot">&lt;-</span> handleOpen    <span class="fu">$</span> <span class="dt">OpenInput</span> eOpen
+  <span class="dt">MessageOutput</span> emWrite     <span class="ot">&lt;-</span> handleMessage <span class="fu">$</span> <span class="dt">MessageInput</span> eMessage
+  <span class="dt">HelpOutput</span> ehWrite        <span class="ot">&lt;-</span> handleHelp    <span class="fu">$</span> <span class="dt">HelpInput</span> eHelp
+  <span class="dt">QuitOutput</span> eqWrite eqQuit <span class="ot">&lt;-</span> handleQuit    <span class="fu">$</span> <span class="dt">QuitInput</span> eQuit
+  <span class="dt">UnknownOutput</span> euWrite     <span class="ot">&lt;-</span> handleUnknown <span class="fu">$</span> <span class="dt">UnknownInput</span> eUnknown
+
+  <span class="kw">let</span>
+    writes  <span class="fu">=</span>
+      <span class="dt">WriteOutputs</span> eoWrite emWrite ehWrite euWrite eqWrite
+
+  return <span class="fu">$</span> <span class="dt">Outputs</span> writes eQuit</code></pre></div>
+<p>and now we’re free to tweak the internals of some of these without exposing everything to the body of <code>networkDescription''</code>.</p>
+<p>This takes us from:</p>
+<p><img src="../images/photos/fan.jpg" width="500" alt="fan" /></p>
+<p>to:</p>
+<p><img src="../images/photos/components.jpg" width="500" alt="components" /></p>
+<h2 id="refactoring-for-testing">Refactoring for testing</h2>
+<h5 id="the-code-for-this-section-is-here-9"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example10.hs">(The code for this section is here)</a></h5>
+<p>We’ve already come across <code>interpret</code>:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">interpret ::</span> (<span class="dt">Event</span> a <span class="ot">-&gt;</span> <span class="dt">Moment</span> (<span class="dt">Event</span> b)) <span class="ot">-&gt;</span> [<span class="dt">Maybe</span> a] <span class="ot">-&gt;</span> <span class="dt">IO</span> [<span class="dt">Maybe</span> b] </code></pre></div>
+<p>and used it in a setting where we only had one input event and one output event.</p>
+<p>If we’re going to make use of it in with this program though, we’re going to need to do some acrobatics.</p>
+<p>We’re up for the challenge. The first thing to do will be to make data types for our inputs and outputs:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">InputIOCmd</span> <span class="fu">=</span>
+    <span class="dt">IOOpen</span>
+  <span class="fu">|</span> <span class="dt">IORead</span> <span class="dt">String</span>
+  <span class="kw">deriving</span> (<span class="dt">Eq</span>, <span class="dt">Ord</span>, <span class="dt">Show</span>)
+
+<span class="kw">data</span> <span class="dt">OutputIOCmd</span> <span class="fu">=</span>
+    <span class="dt">IOWrite</span> <span class="dt">String</span>
+  <span class="fu">|</span> <span class="dt">IOClose</span>
+  <span class="kw">deriving</span> (<span class="dt">Eq</span>, <span class="dt">Ord</span>, <span class="dt">Show</span>)</code></pre></div>
+<p>We are trying to test a network of type <code>InputIO -&gt; Moment OutputIO</code> using <code>Event InputIOCmd</code> as inputs and <code>Event [OutputIOCmd]</code> as outputs. The list of <code>OutputIOCmd</code>s is needed to be able to check if certain outputs are happening simultaneously.</p>
+<p>We’ll write a function to get from <code>Event InputIOCmd</code> to <code>InputIO</code>:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">fanInput ::</span> <span class="dt">Event</span> <span class="dt">InputIOCmd</span> <span class="ot">-&gt;</span> <span class="dt">InputIO</span>
+fanInput eIn <span class="fu">=</span>
+  <span class="kw">let</span>
+    maybeOpen <span class="dt">IOOpen</span> <span class="fu">=</span> <span class="dt">Just</span> ()
+    maybeOpen _    <span class="fu">=</span> <span class="dt">Nothing</span>
+    eOpen <span class="fu">=</span> filterJust <span class="fu">$</span> maybeOpen <span class="fu">&lt;$&gt;</span> eIn
+
+    maybeRead (<span class="dt">IORead</span> x) <span class="fu">=</span> <span class="dt">Just</span> x
+    maybeRead _ <span class="fu">=</span> <span class="dt">Nothing</span>
+    eRead <span class="fu">=</span> filterJust <span class="fu">$</span> maybeRead <span class="fu">&lt;$&gt;</span> eIn
+  <span class="kw">in</span>
+    <span class="dt">InputIO</span> eOpen eRead</code></pre></div>
+<p>This uses <code>filterJust</code>:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">filterJust ::</span> <span class="dt">Event</span> (<span class="dt">Maybe</span> a) <span class="ot">-&gt;</span> <span class="dt">Event</span> a </code></pre></div>
+<p>which passes through the <code>Just</code> values and filters out the <code>Nothing</code> values.</p>
+<p>We’ll also write a function to get from <code>OutputIO</code> to <code>Event [OutputIOCmd]</code></p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">mergeOutput ::</span> <span class="dt">OutputIO</span> <span class="ot">-&gt;</span> <span class="dt">Event</span> [<span class="dt">OutputIOCmd</span>]
+mergeOutput (<span class="dt">OutputIO</span> eWrite eClose) <span class="fu">=</span>
+  unionWith (<span class="fu">++</span>)
+    ((\x <span class="ot">-&gt;</span> [<span class="dt">IOWrite</span> x]) <span class="fu">&lt;$&gt;</span> eWrite)
+    ([<span class="dt">IOClose</span>] <span class="fu">&lt;$</span> eClose)</code></pre></div>
+<p>We can package this up as:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">testNetwork ::</span> <span class="dt">Testable</span> m <span class="ot">=&gt;</span> (<span class="dt">InputIO</span> <span class="ot">-&gt;</span> m <span class="dt">OutputIO</span>) <span class="ot">-&gt;</span> [<span class="dt">Maybe</span> <span class="dt">InputIOCmd</span>] <span class="ot">-&gt;</span> <span class="dt">IO</span> [<span class="dt">Maybe</span> [<span class="dt">OutputIOCmd</span>]]
+testNetwork fn <span class="fu">=</span>
+  interpretEvents <span class="fu">$</span> \i <span class="ot">-&gt;</span> <span class="kw">do</span>
+    o <span class="ot">&lt;-</span> fn <span class="fu">.</span> fanInput <span class="fu">$</span> i
+    return <span class="fu">$</span> mergeOutput o</code></pre></div>
+<p>making use of another typeclass that we concocted in the last post:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">class</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">Testable</span> m <span class="kw">where</span>
+<span class="ot">  interpretEvents ::</span> (<span class="dt">Event</span> a <span class="ot">-&gt;</span> m (<span class="dt">Event</span> b)) <span class="ot">-&gt;</span> [<span class="dt">Maybe</span> a] <span class="ot">-&gt;</span> <span class="dt">IO</span> [<span class="dt">Maybe</span> b]</code></pre></div>
+<p>With some formatting liberties in the output, it behaves admirably when we take it for a spin:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="fu">&gt;</span> output <span class="ot">&lt;-</span> testNetwork networkDescription' [
+    <span class="dt">Just</span> (<span class="dt">IORead</span> <span class="st">&quot;one&quot;</span>)
+  , <span class="dt">Nothing</span>
+  , <span class="dt">Just</span> (<span class="dt">IORead</span> <span class="st">&quot;two&quot;</span>)
+  , <span class="dt">Just</span> (<span class="dt">IORead</span> <span class="st">&quot;/quit&quot;</span>)
+  ]
+<span class="fu">&gt;</span> output
+[ <span class="dt">Just</span> [<span class="dt">IOWrite</span> <span class="st">&quot;one&quot;</span>]
+, <span class="dt">Nothing</span>
+, <span class="dt">Just</span> [<span class="dt">IOWrite</span> <span class="st">&quot;two&quot;</span>]
+, <span class="dt">Just</span> [<span class="dt">IOWrite</span> <span class="st">&quot;Bye&quot;</span>, <span class="dt">IOClose</span>]
+]</code></pre></div>
+<p>This looks pretty handy for use with <code>QuickCheck</code> or <code>HUnit</code>.</p>
+<p>We can also do this with the domain specific events.</p>
+<p>The code is pretty similar to what we have above, and you can check it out in the linked sample code.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">class</span> <span class="dt">Fannable</span> i <span class="kw">where</span>
+  <span class="kw">type</span> <span class="dt">ToFan</span> i
+<span class="ot">  fanInput ::</span> <span class="dt">Testable</span> m <span class="ot">=&gt;</span> <span class="dt">Event</span> (<span class="dt">ToFan</span> i) <span class="ot">-&gt;</span> m i
+
+<span class="kw">class</span> <span class="dt">Mergable</span> o <span class="kw">where</span>
+  <span class="kw">type</span> <span class="dt">Merged</span> o
+<span class="ot">  mergeOutput ::</span> o <span class="ot">-&gt;</span> <span class="dt">Event</span> (<span class="dt">Merged</span> o)
+
+<span class="ot">testNetwork ::</span> (<span class="dt">Testable</span> m, <span class="dt">Fannable</span> i, <span class="dt">Mergable</span> o) <span class="ot">=&gt;</span> (i <span class="ot">-&gt;</span> m o) <span class="ot">-&gt;</span> [<span class="dt">Maybe</span> (<span class="dt">ToFan</span> i)] <span class="ot">-&gt;</span> <span class="dt">IO</span> [<span class="dt">Maybe</span> (<span class="dt">Merged</span> o)]
+testNetwork fn <span class="fu">=</span>
+  interpretEvents <span class="fu">$</span> \i <span class="ot">-&gt;</span> <span class="kw">do</span>
+    fi <span class="ot">&lt;-</span> fanInput i
+    o <span class="ot">&lt;-</span> fn fi
+    return <span class="fu">$</span> mergeOutput o</code></pre></div>
+<p>With that, we can do:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="fu">&gt;</span> output <span class="ot">&lt;-</span> testNetwork networkDescription'' [
+    <span class="dt">Just</span> <span class="dt">Open</span>
+  , <span class="dt">Just</span> (<span class="dt">Message</span> <span class="st">&quot;testing...&quot;</span>)
+  , <span class="dt">Just</span> <span class="dt">Quit</span>
+  ]
+<span class="fu">&gt;</span> output
+[ <span class="dt">Just</span> [<span class="dt">Write</span> <span class="st">&quot;Hi (type /help for instructions)&quot;</span>]
+, <span class="dt">Just</span> [<span class="dt">Write</span> <span class="st">&quot;testing...&quot;</span>]
+, <span class="dt">Just</span> [<span class="dt">Write</span> <span class="st">&quot;Bye&quot;</span>, <span class="dt">Close</span>]
+]</code></pre></div>
+<p>We can also do this for the various components we’ve come across so far - mostly because their inputs and outputs have been made up of events, so the fanning and merging functions are usually doable. We’ll have to get a little trickier later on though.</p>
+<h2 id="next-up">Next up</h2>
+<p>The next thing we’ll look at is behaviors, which will help us deal with more complex scenarios in a more modular way.</p>
+<p><a href="./behaviors.html">Onwards!</a></p>
+    </div>
+    
+    <div class="panel-footer">
+        <h5>Posted on October  1, 2016 </h5>
+    </div>
+    
+</div>
+
+            <div class="row">
+                <div class="col-md-5"> Site proudly generated by <a href="http://jaspervdj.be/hakyll">Hakyll</a> </div>
+                <div class="col-md-7">
+                    This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International License</a>
+                    <a rel="license" href="http://creativecommons.org/licenses/by/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/88x31.png" /></a>
+                </div>
+            </div>
+        </div>
+
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/js/bootstrap.min.js"></script>
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-59162164-1', 'auto');
+  ga('send', 'pageview');
+</script>
+
+    </body>
+</html>

@@ -4,7 +4,7 @@
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
         <meta http-equiv="X-UA-Compatible" content="IE=edge">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Dave Laing - Preparing for a chat server</title>
+        <title>Dave Laing - Garbage Collection</title>
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap.min.css">
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap-theme.min.css">
         <link rel="stylesheet" href="../css/custom.css">
@@ -30,39 +30,21 @@
         <div class="container">
             <div class="panel panel-default">
     <div class="panel-heading">
-        <h3 class="panel-title"><a href="../drafts/chat-solo.html">Preparing for a chat server</a></h3>
+        <h3 class="panel-title"><a href="../drafts/garbage-collection.html">Garbage Collection</a></h3>
     </div>
     <div class="panel-body">
-        <p>TODO previously</p>
-<h1 id="chat-server-functionality">Chat server functionality</h1>
-<p>TODO intro</p>
-<h2 id="prompting-for-a-name">Prompting for a name</h2>
-<h3 id="introducing-recursive-values">Introducing recursive values</h3>
-<h3 id="switching-things-up">Switching things up</h3>
-<ul>
-<li>use phase to filter commands</li>
-<li>want a phase change event as well, so we can use it for “logged in”</li>
-<li>would be nice to get something like that for entering the name phase as well, so we can use it to trigger the initial prompt</li>
-<li>add ruling out of certain reserved names</li>
-<li><p>use switch to really cut across to the next phase</p></li>
-<li><p>eventually would be nice to have the name behaviour lose the Maybe</p></li>
-</ul>
-<h2 id="collecting-notifications">Collecting notifications</h2>
-<h3 id="the-shape-of-things">The shape of things</h3>
-<h3 id="online-notifications">Online notifications</h3>
-<h3 id="batch-mode-notifications">Batch mode notifications</h3>
-<h3 id="chosing-the-mode-at-login">Chosing the mode at login</h3>
-<ul>
-<li>separate notifications and error messages etc…</li>
-<li><p>add an open event, so we can have log in and log out events</p></li>
-<li>collect until asked for, then clear</li>
-<li>bounded queue version to limit the amount of memory we might need</li>
-<li><p>mention the ability to use files for overflow, or a database, here</p></li>
-<li>extra phase to grab preference? or command line option, passed in as a behavior?</li>
-<li><p>talk about where we’re going with this</p></li>
-</ul>
+        <p><a href="./commands.html">Previously</a> we went through the two main components that will take care of interacting with individual users of our chat server.</p>
+<h1 id="garbage-collection-and-frp">Garbage collection and FRP</h1>
+<h2 id="section"></h2>
+<h3 id="filtering">Filtering</h3>
+<h3 id="switching-outputs">Switching outputs</h3>
+<h3 id="switching-blocks">Switching blocks</h3>
+<h2 id="section-1"></h2>
+<h3 id="events">Events</h3>
+<p>effect of reactimate</p>
+<h3 id="behaviors">Behaviors</h3>
+<p>do behaviors that aren’t sampled get cleaned up in circumstances where behaviors that do get sampled stick around - sampled with non-never - not sampled at all - sampled with never</p>
 <h2 id="next-up">Next up</h2>
-<p>TODO</p>
     </div>
     
     <div class="panel-footer">

@@ -1,0 +1,329 @@
+<!DOCTYPE html> 
+<html lang="en">
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Dave Laing - Components for a chat server</title>
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap.min.css">
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap-theme.min.css">
+        <link rel="stylesheet" href="../css/custom.css">
+        <link rel="stylesheet" href="../css/syntax.css">
+        <link rel="alternate" type="application/atom+xml" title="Atom - A Series on Behaviors and Events" href="../atom.xml" />
+        <link rel="alternate" type="application/rss+xml" title="RSS - A series on behaviours and events" href="../rss.xml" />
+    </head>
+    <body>
+        <nav class="navbar navbar-default navbar-static-top">
+        <div class="container">
+        <div class="navbar-header">
+            <div class="navbar-brand">
+                <a href="../">A Series on Behaviors and Events</a>
+            </div>
+            <ul class="nav navbar-nav">
+                <li role="presentation"><a href="http://dlaing.org">Back to my main site</a></li>
+            </ul>
+        </div>
+
+        </div>
+        </nav>
+
+        <div class="container">
+            <div class="panel panel-default">
+    <div class="panel-heading">
+        <h3 class="panel-title"><a href="../drafts/components.html">Components for a chat server</a></h3>
+    </div>
+    <div class="panel-body">
+        <p><a href="./behaviors.html">Previously</a> we got used to the basics of behaviors.</p>
+<h1 id="components-for-a-chat-server">Components for a chat server</h1>
+<p>We’re going to start writing bits and pieces that we’ll be able to reuse with out chat server. Since we’re only interacting with one user from the command line, we’ll be focusing on the pieces that we’ll be using for each of the client connections, with the console standing in for actual sockets.</p>
+<p>There are three components that we’ll be creating here:</p>
+<ul>
+<li>a component to handle delivering notifications to the user</li>
+<li>a component to prompt a user for a valid and unique nickname</li>
+<li>a component to handle command processing, which will be an extended form of what we already have</li>
+</ul>
+<h2 id="notifications">Notifications</h2>
+<p>We are making a distinction between two types of output to the user.</p>
+<p>A notification is any chat server event that needs to be communicated to let people know what is going on - these include notifications for when people join or quit, when they send messages, and so on.</p>
+<p>The other kind of output is for communication directly with the client. This includes displaying help and error messages, and will also include the display of any notifications we want to present to the user.</p>
+<p>We are making this distinction because we have two ways of dealing with notifications.</p>
+<p>The first - and simplest - is to display them to the user as they come in. The second is to collect the notifications (up to some bounds) until the user requests them, at which time we display the contents of the notification queue and then clear it.</p>
+<p>Why would we want both of these options? We’ll see in a little while.</p>
+<h3 id="data-type-for-notifications">Data type for notifications</h3>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">Notification</span> <span class="fu">=</span>
+    <span class="dt">NJoin</span> <span class="dt">User</span>
+  <span class="fu">|</span> <span class="dt">NMessage</span> <span class="dt">User</span> <span class="dt">Message</span>
+  <span class="fu">|</span> <span class="dt">NTell</span> <span class="dt">User</span> <span class="dt">User</span> <span class="dt">Message</span>
+  <span class="fu">|</span> <span class="dt">NKick</span> <span class="dt">User</span> <span class="dt">User</span>
+  <span class="fu">|</span> <span class="dt">NQuit</span> <span class="dt">User</span>
+  <span class="kw">deriving</span> (<span class="dt">Eq</span>, <span class="dt">Ord</span>, <span class="dt">Show</span>)</code></pre></div>
+<p>We need to be able to convert these into <code>String</code>s:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">notificationMessage ::</span> <span class="dt">Notification</span> <span class="ot">-&gt;</span> <span class="dt">String</span>
+notificationMessage (<span class="dt">NJoin</span> user) <span class="fu">=</span>
+  user <span class="fu">++</span> <span class="st">&quot; has joined&quot;</span>
+notificationMessage (<span class="dt">NMessage</span> user message) <span class="fu">=</span>
+  <span class="st">&quot;&lt;&quot;</span> <span class="fu">++</span> user <span class="fu">++</span> <span class="st">&quot;&gt;: &quot;</span> <span class="fu">++</span> message
+notificationMessage (<span class="dt">NTell</span> userFrom userTo message) <span class="fu">=</span>
+  <span class="st">&quot;*&quot;</span> <span class="fu">++</span> userFrom <span class="fu">++</span> <span class="st">&quot;*: &quot;</span> <span class="fu">++</span> message
+notificationMessage (<span class="dt">NKick</span> kicker kickee) <span class="fu">=</span>
+  kicker <span class="fu">++</span> <span class="st">&quot; has kicked &quot;</span> <span class="fu">++</span> kickee
+notificationMessage (<span class="dt">NQuit</span> user) <span class="fu">=</span>
+  user <span class="fu">++</span> <span class="st">&quot; has quit&quot;</span></code></pre></div>
+<p>TODO data types for the components</p>
+<h3 id="streaming-notifications">Streaming notifications</h3>
+<h3 id="batching-notifications">Batching notifications</h3>
+<h2 id="prompting-for-a-name">Prompting for a name</h2>
+<p>The first thing we want to do when a user connects is to display a friendly greeting and ask what nickname they would like to use. Bonus points if we can change that greeting without having to restart the server.</p>
+<h3 id="dealing-with-names">Dealing with names</h3>
+<p>We’d like the following restrictions on the nicknames:</p>
+<ul>
+<li>they can’t be empty</li>
+<li>they should be one word</li>
+<li>they should not contain a ‘/’ character, since we’re using those for commands</li>
+<li>they should not be the same as the nickname of any of the other users</li>
+</ul>
+<p>In the absence of other users, we’re going to reserve the usernames “root” and “admin”, to prevent (entirely hypothetical) mischief.</p>
+<p>If the user enters a name that doesn’t meet our restrictions, we should print some feedback and ask them to have another try.</p>
+<p>We’ll create a data type to describe name-related errors:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">NameError</span> <span class="fu">=</span>
+    <span class="dt">EmptyName</span>
+  <span class="fu">|</span> <span class="dt">MultiWordName</span> <span class="dt">String</span>
+  <span class="fu">|</span> <span class="dt">IllegalCharInName</span> <span class="dt">String</span>
+  <span class="fu">|</span> <span class="dt">NameInUse</span> <span class="dt">String</span>
+  <span class="fu">|</span> <span class="dt">NameNotInUse</span> <span class="dt">String</span>
+  <span class="kw">deriving</span> (<span class="dt">Eq</span>, <span class="dt">Ord</span>, <span class="dt">Show</span>)</code></pre></div>
+<p>Note that we have a <code>NameNotInUse</code> error here, which we’ll use later on if someone tries to send a private message to a non-existent user.</p>
+<p>We add a function to turn them into strings:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">nameErrorMessage ::</span> <span class="dt">NameError</span> <span class="ot">-&gt;</span> <span class="dt">String</span>
+nameErrorMessage <span class="dt">EmptyName</span> <span class="fu">=</span>
+  <span class="st">&quot;Your name cannot be an empty string&quot;</span>
+nameErrorMessage (<span class="dt">MultiWordName</span> _) <span class="fu">=</span>
+  <span class="st">&quot;Your name can only be a single word&quot;</span>
+nameErrorMessage (<span class="dt">IllegalCharInName</span> _) <span class="fu">=</span>
+  <span class="st">&quot;Your name cannot contain the character '/'&quot;</span>
+nameErrorMessage (<span class="dt">NameInUse</span> s) <span class="fu">=</span>
+  <span class="st">&quot;The name &quot;</span> <span class="fu">++</span> s <span class="fu">++</span> <span class="st">&quot; is already in use&quot;</span>
+nameErrorMessage (<span class="dt">NameNotInUse</span> s) <span class="fu">=</span>
+  <span class="st">&quot;The name &quot;</span> <span class="fu">++</span> s <span class="fu">++</span> <span class="st">&quot; is not in use&quot;</span></code></pre></div>
+<p>Then we’ll make some functions to check candidate names under various conditions:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">import qualified</span> <span class="dt">Data.Set</span> <span class="kw">as</span> <span class="dt">S</span>
+
+<span class="ot">checkValidName ::</span> <span class="dt">String</span> <span class="ot">-&gt;</span> <span class="dt">Either</span> <span class="dt">NameError</span> <span class="dt">String</span>
+checkValidName name <span class="fu">=</span>
+  <span class="kw">case</span> words name <span class="kw">of</span>
+    [] <span class="ot">-&gt;</span>
+      <span class="dt">Left</span> <span class="dt">EmptyName</span>
+    [n]
+      <span class="fu">|</span> <span class="ch">'/'</span> <span class="ot">`elem`</span> n <span class="ot">-&gt;</span>
+        <span class="dt">Left</span> <span class="fu">$</span> <span class="dt">IllegalCharInName</span> name
+      <span class="fu">|</span> otherwise <span class="ot">-&gt;</span>
+        <span class="dt">Right</span> n
+    _ <span class="ot">-&gt;</span>
+      <span class="dt">Left</span> <span class="fu">$</span> <span class="dt">MultiWordName</span> name
+
+<span class="ot">checkValidNameNotInUse ::</span> <span class="dt">S.Set</span> <span class="dt">String</span> <span class="ot">-&gt;</span> <span class="dt">String</span> <span class="ot">-&gt;</span> <span class="dt">Either</span> <span class="dt">NameError</span> <span class="dt">String</span>
+checkValidNameNotInUse names line <span class="fu">=</span> <span class="kw">do</span>
+  name <span class="ot">&lt;-</span> checkValidName line
+  <span class="kw">if</span> name <span class="ot">`S.member`</span> names
+  <span class="kw">then</span> <span class="dt">Left</span> <span class="fu">$</span> <span class="dt">NameInUse</span> line
+  <span class="kw">else</span> <span class="dt">Right</span> name
+
+<span class="ot">checkValidNameInUse ::</span> <span class="dt">S.Set</span> <span class="dt">String</span> <span class="ot">-&gt;</span> <span class="dt">String</span> <span class="ot">-&gt;</span> <span class="dt">Either</span> <span class="dt">NameError</span> <span class="dt">String</span>
+checkValidNameInUse names line <span class="fu">=</span> <span class="kw">do</span>
+  name <span class="ot">&lt;-</span> checkValidName line
+  <span class="kw">if</span> name <span class="ot">`S.notMember`</span> names
+  <span class="kw">then</span> <span class="dt">Left</span> <span class="fu">$</span> <span class="dt">NameNotInUse</span> line
+  <span class="kw">else</span> <span class="dt">Right</span> name</code></pre></div>
+<p>Having pure functions for these is nice.</p>
+<h3 id="an-event-network-for-name-prompting">An event network for name prompting</h3>
+<p>At this point we’re actually nearly done.</p>
+<p>We need some data structures for our inputs and outputs.</p>
+<p>We have a start event to trigger the initial greeting and a read event for the strings from the user, and we pass in the greeting and set of user names that are currently in use as behaviors.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">NameInput</span> <span class="fu">=</span> <span class="dt">NameInput</span> {
+<span class="ot">    nieStart    ::</span> <span class="dt">Event</span> ()
+  ,<span class="ot"> nieRead     ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> nibGreeting ::</span> <span class="dt">Behavior</span> <span class="dt">String</span>
+  ,<span class="ot"> nibNames    ::</span> <span class="dt">Behavior</span> (<span class="dt">S.Set</span> <span class="dt">String</span>)
+  }</code></pre></div>
+<p>For the outputs, we have an event for the text we want to write to the display and an event which is fired when the user selects a valid user name.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">NameOutput</span> <span class="fu">=</span> <span class="dt">NameOutput</span> {
+<span class="ot">    noeWrite ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  ,<span class="ot"> noeName  ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  }</code></pre></div>
+<p>We’ll write some helper functions to stitch together our output strings:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">mkGreeting ::</span> <span class="dt">String</span> <span class="ot">-&gt;</span> <span class="dt">String</span> <span class="ot">-&gt;</span> <span class="dt">String</span>
+mkGreeting greeting prompt <span class="fu">=</span>
+  unlines [greeting, prompt]
+
+<span class="ot">mkNameErrorMessage ::</span> <span class="dt">String</span> <span class="ot">-&gt;</span> <span class="dt">NameError</span> <span class="ot">-&gt;</span> <span class="dt">String</span>
+mkNameErrorMessage prompt e <span class="fu">=</span>
+  unlines [nameErrorMessage e, prompt]</code></pre></div>
+<p>Then we pull out the duct tape and build ourselves an event network:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">handleName ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">NameInput</span> <span class="ot">-&gt;</span> m <span class="dt">NameOutput</span>
+handleName (<span class="dt">NameInput</span> eStart eRead bGreeting bNames) <span class="fu">=</span> <span class="kw">do</span>
+  <span class="kw">let</span>
+    bPrompt <span class="fu">=</span> pure <span class="st">&quot;Please enter your name:&quot;</span>
+
+    eGreeting <span class="fu">=</span> mkGreeting <span class="fu">&lt;$&gt;</span> bGreeting <span class="fu">&lt;*&gt;</span> bPrompt <span class="fu">&lt;@</span> eStart
+
+    (eNameInvalid, eNameValid) <span class="fu">=</span> split <span class="fu">$</span> checkValidNameNotInUse <span class="fu">&lt;$&gt;</span> bNames <span class="fu">&lt;@&gt;</span> eRead
+
+    eNameErrorMessage <span class="fu">=</span> mkNameErrorMessage <span class="fu">&lt;$&gt;</span> bPrompt <span class="fu">&lt;@&gt;</span> eNameInvalid
+
+    eWrite <span class="fu">=</span> leftmost [
+        eGreeting
+      , eNameErrorMessage
+      ]
+
+  return <span class="fu">$</span> <span class="dt">NameOutput</span> eWrite eNameValid</code></pre></div>
+<p>This makes use of <code>split</code>, which is handy when you want to fan out an <code>Either</code> into two different events:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">split ::</span> <span class="dt">Event</span> (<span class="dt">Either</span> a b) <span class="ot">-&gt;</span> (<span class="dt">Event</span> a, <span class="dt">Event</span> b) </code></pre></div>
+<p>This <em>could</em> also be split out into two smaller components - one for handling the initial greeting and prompt, and another for checking the name.</p>
+<h2 id="processing-commands">Processing commands</h2>
+<p>The commands we are going to implement are modeled after the server in Parallel and Concurrent Programming in Haskell:</p>
+<ul>
+<li><code>message...</code> will send a message to all users</li>
+<li><code>/tell user message...</code> will send a private message to <code>user</code></li>
+<li><code>/kick user</code> will kick a user off the server</li>
+<li><code>/quit</code> will exit the server</li>
+</ul>
+<p>We also have added:</p>
+<ul>
+<li><code>/fetch</code> will fetch any pending notifications (if relevant)</li>
+<li><code>/help</code> will print out a help message</li>
+</ul>
+<h3 id="notifications-and-other-output">Notifications and other output</h3>
+<p>This subtly introduces two types of outputs.</p>
+<p>Notifications are visible to some or all users, and include the messages that are zipping around, notices of who is logging in and who is quitting, and other activity like that.</p>
+<p>We’ll create a data type for these:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">type</span> <span class="dt">User</span> <span class="fu">=</span> <span class="dt">String</span>
+<span class="kw">type</span> <span class="dt">Message</span> <span class="fu">=</span> <span class="dt">String</span>
+
+<span class="kw">data</span> <span class="dt">Notification</span> <span class="fu">=</span>
+    <span class="dt">NJoin</span> <span class="dt">User</span>
+  <span class="fu">|</span> <span class="dt">NMessage</span> <span class="dt">User</span> <span class="dt">Message</span>
+  <span class="fu">|</span> <span class="dt">NTell</span> <span class="dt">User</span> <span class="dt">User</span> <span class="dt">Message</span>
+  <span class="fu">|</span> <span class="dt">NKick</span> <span class="dt">User</span> <span class="dt">User</span>
+  <span class="fu">|</span> <span class="dt">NQuit</span> <span class="dt">User</span>
+  <span class="kw">deriving</span> (<span class="dt">Eq</span>, <span class="dt">Ord</span>, <span class="dt">Show</span>)</code></pre></div>
+<p>We’ll be working with a component that has an <code>Event Notification</code> as both an input and as an output. The input carries the notifications coming in from all of the users on the chat server, and the output is for the notifications generated by the user issuing the commands that we are processing. Since we’re only handling a single user at the moment, we’re going to end up piping our output back into our input.</p>
+<p>The other type of messages are the ones which only the current user should see, which include the help output and the various error message.</p>
+<h3 id="using-names-in-notifications">Using names in notifications</h3>
+<p>Three of our commands need to be tagged with the user name to create a notification. This can be taken care of using <code>&lt;@&gt;</code> and <code>&lt;@</code>, which we’ve covered previously.</p>
+<p>These would normally be inlined, but I’ve presented them in functions here so that you can see what types are in play.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">notifyOpen ::</span> <span class="dt">Behavior</span> <span class="dt">User</span> <span class="ot">-&gt;</span> <span class="dt">Event</span> () <span class="ot">-&gt;</span> <span class="dt">Event</span> <span class="dt">Notification</span>
+notifyOpen bName eOpen <span class="fu">=</span> 
+  <span class="dt">NJoin</span> <span class="fu">&lt;$&gt;</span> bName <span class="fu">&lt;@</span> eOpen
+
+<span class="ot">notifyMessage ::</span> <span class="dt">Behavior</span> <span class="dt">User</span> <span class="ot">-&gt;</span> <span class="dt">Event</span> <span class="dt">Message</span> <span class="ot">-&gt;</span> <span class="dt">Event</span> <span class="dt">Notification</span>
+notifyMessage bName eMessage <span class="fu">=</span> 
+  <span class="dt">NMessage</span> <span class="fu">&lt;$&gt;</span> bName <span class="fu">&lt;@&gt;</span> eMessage
+
+<span class="ot">notifyQuit ::</span> <span class="dt">Behavior</span> <span class="dt">User</span> <span class="ot">-&gt;</span> <span class="dt">Event</span> () <span class="ot">-&gt;</span> <span class="dt">Event</span> <span class="dt">Notification</span>
+notifyQuit bName eQuit <span class="fu">=</span> 
+  <span class="dt">NQuit</span> <span class="fu">&lt;$&gt;</span> bName <span class="fu">&lt;@</span> eQuit</code></pre></div>
+<p>So far, so good.</p>
+<p>Two of our commands refer to other users. This means we need to check that those users are valid and currently active, and the commands need to be tagged with both the source and target users in order to create a notification.</p>
+<p>We have already introduced the code to check if a name is valid and either in use or not in use, so we just need to package that up:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">KickInput</span> <span class="fu">=</span> <span class="dt">KickInput</span> {
+<span class="ot">    kibNames ::</span> <span class="dt">Behavior</span> (<span class="dt">S.Set</span> <span class="dt">User</span>)
+  ,<span class="ot"> kieName  ::</span> <span class="dt">Event</span> <span class="dt">User</span>
+  }
+
+<span class="kw">data</span> <span class="dt">KickOutput</span> <span class="fu">=</span> <span class="dt">KickOutput</span> {
+<span class="ot">    koeKickValid ::</span> <span class="dt">Event</span> <span class="dt">User</span>
+  ,<span class="ot"> koeError     ::</span> <span class="dt">Event</span> <span class="dt">String</span>
+  }
+
+<span class="ot">handleKick ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">KickInput</span> <span class="ot">-&gt;</span> m <span class="dt">KickOutput</span>
+handleKick (<span class="dt">KickInput</span> bNames eName) <span class="fu">=</span> <span class="kw">do</span>
+  <span class="kw">let</span>
+    (eNameInvalid, eNameValid) <span class="fu">=</span> split <span class="fu">$</span> checkValidNameInUse <span class="fu">&lt;$&gt;</span> bNames <span class="fu">&lt;@&gt;</span> eName
+    eError <span class="fu">=</span> nameErrorMessage <span class="fu">&lt;$&gt;</span> eNameInvalid
+  return <span class="fu">$</span> <span class="dt">KickOutput</span> eNameValid eError</code></pre></div>
+<p>The notification then gets created in the same way as the previous notifications:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">notifyKick ::</span> <span class="dt">Behavior</span> <span class="dt">User</span> <span class="ot">-&gt;</span> <span class="dt">Event</span> <span class="dt">User</span> <span class="ot">-&gt;</span> <span class="dt">Event</span> <span class="dt">Notification</span>
+notifyKick bName eKick <span class="fu">=</span> 
+  <span class="dt">NKick</span> <span class="fu">&lt;$&gt;</span> bName <span class="fu">&lt;@&gt;</span> eKick</code></pre></div>
+<p>but is only created in the case where the kickee was a valid, logged in user:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell">  <span class="dt">KickOutput</span> eKickValid ekError <span class="ot">&lt;-</span> handleKick <span class="fu">$</span> <span class="dt">KickInput</span> eKick bNames
+  <span class="kw">let</span> 
+    enKick <span class="fu">=</span> notifyKick bName eKickValid</code></pre></div>
+<p>We treat private messages in the same way.</p>
+<h3 id="two-ways-of-handling-notifications">Two ways of handling notifications</h3>
+<p>For various nefarious reasons, we’re going to introduce a two ways of consuming the incoming notifications.</p>
+<p>The first method will print the notifications as they come in. The second method will gather the notifications up until a <code>/fetch</code> command is used, causing the pending notifications to be displayed and the queue to be reset.</p>
+<p>We model the choice as:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">NotificationType</span> <span class="fu">=</span>
+    <span class="dt">Stream</span>
+  <span class="fu">|</span> <span class="dt">Batch</span> (<span class="dt">Behavior</span> <span class="dt">Int</span>)</code></pre></div>
+<p>where the <code>Behavior Int</code> provides the upper bound on our notification queue length.</p>
+<p>We would like a common interface to our notification components, and so we write one:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">data</span> <span class="dt">NotificationInput</span> <span class="fu">=</span> <span class="dt">NotificationInput</span> {
+<span class="ot">    nieFetch        ::</span> <span class="dt">Event</span> ()
+  ,<span class="ot"> nieNotification ::</span> <span class="dt">Event</span> <span class="dt">Notification</span>
+  }
+
+<span class="kw">data</span> <span class="dt">NotificationOutput</span> <span class="fu">=</span> <span class="dt">NotificationOutput</span> {
+<span class="ot">    noeNotifications ::</span> <span class="dt">Event</span> [<span class="dt">Notification</span>]
+  }</code></pre></div>
+<p>The streaming version of handling notifications is very simple:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">handleNotificationStream ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">NotificationInput</span> <span class="ot">-&gt;</span> m <span class="dt">NotificationOutput</span>
+handleNotificationStream (<span class="dt">NotificationInput</span> _ eNotify) <span class="fu">=</span>
+  return <span class="fu">.</span> <span class="dt">NotificationOutput</span> <span class="fu">$</span> pure <span class="fu">&lt;$&gt;</span> eNotify</code></pre></div>
+<p>The batching method is similar to the example we used when introducing <code>Behavior</code>:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">addToBoundedList ::</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> a <span class="ot">-&gt;</span> [a] <span class="ot">-&gt;</span> [a]
+addToBoundedList limit x xs <span class="fu">=</span>
+  take limit (x <span class="fu">:</span> xs)
+
+<span class="ot">handleNotificationBatch ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">Behavior</span> <span class="dt">Int</span> <span class="ot">-&gt;</span> <span class="dt">NotificationInput</span> <span class="ot">-&gt;</span> m <span class="dt">NotificationOutput</span>
+handleNotificationBatch bLimit (<span class="dt">NotificationInput</span> eFetch eNotify) <span class="fu">=</span> <span class="kw">do</span>
+  bNotifications <span class="ot">&lt;-</span> accumB [] <span class="fu">.</span> unions <span class="fu">$</span> [
+      addToBoundedList <span class="fu">&lt;$&gt;</span> bLimit <span class="fu">&lt;@&gt;</span> eNotify
+    , const [] <span class="fu">&lt;$</span> eFetch
+    ]
+  return <span class="fu">.</span> <span class="dt">NotificationOutput</span> <span class="fu">$</span> reverse <span class="fu">&lt;$&gt;</span> bNotifications <span class="fu">&lt;@</span> eFetch</code></pre></div>
+<p>Once we have both options, we provide a wrapper to help us choose between them.</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">handleNotification ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">NotificationType</span> <span class="ot">-&gt;</span> <span class="dt">NotificationInput</span> <span class="ot">-&gt;</span> m <span class="dt">NotificationOutput</span>
+handleNotification <span class="dt">Stream</span> <span class="fu">=</span>
+  handleNotificationStream
+handleNotification (<span class="dt">Batch</span> limit) <span class="fu">=</span>
+  handleNotificationBatch limit</code></pre></div>
+<h3 id="an-event-network-for-commands">An event network for commands</h3>
+<p>All of the pieces are in place. Let’s start stitching them together.</p>
+<p>TODO</p>
+<h2 id="next-up">Next up</h2>
+<p>We’ve seen two components of the chat server - one for prompting a user for their name, and another for processing the commands that they issue.</p>
+<p>Next we’ll look at how to link them together so that they are used one after the other.</p>
+<p><a href="./filtering-and-switching.html">Onwards!</a></p>
+    </div>
+    
+    <div class="panel-footer">
+        <h5>Posted on October  1, 2016 </h5>
+    </div>
+    
+</div>
+
+            <div class="row">
+                <div class="col-md-5"> Site proudly generated by <a href="http://jaspervdj.be/hakyll">Hakyll</a> </div>
+                <div class="col-md-7">
+                    This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International License</a>
+                    <a rel="license" href="http://creativecommons.org/licenses/by/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/88x31.png" /></a>
+                </div>
+            </div>
+        </div>
+
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/js/bootstrap.min.js"></script>
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-59162164-1', 'auto');
+  ga('send', 'pageview');
+</script>
+
+    </body>
+</html>

@@ -4,7 +4,7 @@
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
         <meta http-equiv="X-UA-Compatible" content="IE=edge">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Dave Laing - Refactoring the echo program</title>
+        <title>Dave Laing - An echo program</title>
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap.min.css">
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap-theme.min.css">
         <link rel="stylesheet" href="../css/custom.css">
@@ -30,10 +30,10 @@
         <div class="container">
             <div class="panel panel-default">
     <div class="panel-heading">
-        <h3 class="panel-title"><a href="../drafts/refactoring.html">Refactoring the echo program</a></h3>
+        <h3 class="panel-title"><a href="../drafts/refactoring.html">An echo program</a></h3>
     </div>
     <div class="panel-body">
-        <p><a href="./events.html">Previously</a> we looked at how events work in FRP, and built up a little program to echo text to the user.</p>
+        <p><a href="./events.html">Previously</a> we looked at how events work in FRP, and built up a little program to test it out.</p>
 <h1 id="an-echo-program">An echo program</h1>
 <p>Now we’re going to take that program and progressively alter it, in order to separate out the IO that the program performs, to make some of the pieces of the program easier to reuse, and to make the program testable.</p>
 <p>As a reminder, we’re starting with this:</p>
@@ -85,16 +85,39 @@ handleInput (<span class="dt">InputSources</span> iso isr) <span class="fu">=</s
 handleOutput (<span class="dt">OutputIO</span> eWrite eClose) <span class="fu">=</span> <span class="kw">do</span>
   reactimate <span class="fu">$</span> putStrLn <span class="fu">&lt;$&gt;</span> eWrite
   reactimate <span class="fu">$</span> exitSuccess <span class="fu">&lt;$</span> eClose</code></pre></div>
-<p>From there, we write a function to package these up:</p>
-<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">mkNetwork ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> (<span class="dt">InputIO</span> <span class="ot">-&gt;</span> m <span class="dt">OutputIO</span>) <span class="ot">-&gt;</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
+<p>From there, we’ll write a function to package these up.</p>
+<p>We want something like this:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">mkNetwork ::</span> <span class="fu">???</span> m <span class="ot">=&gt;</span> (<span class="dt">InputIO</span> <span class="ot">-&gt;</span> m <span class="dt">OutputIO</span>) <span class="ot">-&gt;</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
 mkNetwork fn input <span class="fu">=</span> <span class="kw">do</span>
   i <span class="ot">&lt;-</span> handleInput input
-  o <span class="ot">&lt;-</span> liftMoment <span class="fu">$</span> fn i
+  o <span class="ot">&lt;-</span> <span class="fu">???</span> <span class="fu">$</span> fn i
   handleOutput o</code></pre></div>
-<p>Our current event network actually could have the type <code>InputIO -&gt; OutputIO</code>, but we’re adding the <code>MonadMoment</code> context into that function to be able to handle a wider variety of event networks.</p>
-<p>We’re making use of <code>liftMoment</code> from the <code>MonadMoment</code> class in that function to make the jump to <code>MomentIO</code>.</p>
+<p>where the typeclass constraint has instances for both <code>Moment</code> and <code>MomentIO</code>.</p>
+<p>Throughout <code>reactive-banana</code> you’ll see a typeclass:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">class</span> <span class="dt">Monad</span> m <span class="ot">=&gt;</span> <span class="dt">MonadMoment</span> m <span class="kw">where</span>
+<span class="ot">  liftMoment ::</span> <span class="dt">Moment</span> a <span class="ot">-&gt;</span> m a</code></pre></div>
+<p>with instances for <code>Moment</code> and <code>MomentIO</code>.</p>
+<p>This is used that the various combinators can be written once in terms of <code>Moment</code> and will work in either pure event networks - the <code>Moment</code> monad - or in event networks that also do some IO - the <code>MomentIO</code> monad.</p>
+<p>It is for converting a common input to a parametised output.</p>
+<p>We have the opposite problem here. We want to convert a parametised input to a common output.</p>
+<p>So we’ll write a class:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">class</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">MonadMomentIO</span> m <span class="kw">where</span>
+<span class="ot">  toMomentIO ::</span> m a <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> a</code></pre></div>
+<p>and the instances that we need:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">instance</span> <span class="dt">MonadMomentIO</span> <span class="dt">Moment</span> <span class="kw">where</span>
+  toMomentIO <span class="fu">=</span> liftMoment
+
+<span class="kw">instance</span> <span class="dt">MonadMomentIO</span> <span class="dt">MomentIO</span> <span class="kw">where</span>
+  toMomentIO <span class="fu">=</span> id</code></pre></div>
+<p>After that, we plug it in and hit the switch:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">mkNetwork ::</span> <span class="dt">MonadMomentIO</span> m <span class="ot">=&gt;</span> (<span class="dt">InputIO</span> <span class="ot">-&gt;</span> m <span class="dt">OutputIO</span>) <span class="ot">-&gt;</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
+mkNetwork fn input <span class="fu">=</span> <span class="kw">do</span>
+  i <span class="ot">&lt;-</span> handleInput input
+  o <span class="ot">&lt;-</span> toMomentIO <span class="fu">$</span> fn i
+  handleOutput o</code></pre></div>
+<p>The event network that we are currently working with could actually have the type <code>InputIO -&gt; OutputIO</code>, but we’re adding the <code>MonadMoment</code> context into that function to be able to handle a wider variety of event networks.</p>
 <p>Our network description is now free from IO:</p>
-<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">pureNetworkDescription ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">InputIO</span> <span class="ot">-&gt;</span> m <span class="dt">OutputIO</span> 
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">pureNetworkDescription ::</span> <span class="dt">InputIO</span> <span class="ot">-&gt;</span> <span class="dt">Moment</span> <span class="dt">OutputIO</span> 
 pureNetworkDescription (<span class="dt">InputIO</span> eOpen eRead) <span class="fu">=</span>
   <span class="kw">let</span>
     eMessage <span class="fu">=</span> filterE ((<span class="fu">/=</span> <span class="st">&quot;/&quot;</span>) <span class="fu">.</span> take <span class="dv">1</span>) eRead
@@ -118,6 +141,12 @@ pureNetworkDescription (<span class="dt">InputIO</span> eOpen eRead) <span class
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">networkDescription ::</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
 networkDescription <span class="fu">=</span> 
   mkNetwork pureNetworkDescription</code></pre></div>
+<p>Another option would be to give <code>pureNetworkDescription</code> a more abstract type:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">pureNetworkDescription ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">InputIO</span> <span class="ot">-&gt;</span> m <span class="dt">OutputIO</span> </code></pre></div>
+<p>to allow for reuse in more contexts, but that would force us to provide a concrete type immediately in:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">networkDescription ::</span> <span class="dt">InputSources</span> <span class="ot">-&gt;</span> <span class="dt">MomentIO</span> ()
+networkDescription <span class="fu">=</span> 
+  mkNetwork <span class="fu">$</span><span class="ot"> pureNetworkDescription ::</span> <span class="dt">InputIO</span> <span class="ot">-&gt;</span> <span class="dt">Moment</span> <span class="dt">OutputIO</span></code></pre></div>
 <h2 id="a-little-more-separation">A little more separation</h2>
 <h5 id="the-code-for-this-section-is-here-1"><a href="https://github.com/dalaing/behaviors-and-events/tree/master/code/talk/src/Part2/Example2.hs">(The code for this section is here)</a></h5>
 <p>We’re currently not doing any IO in <code>pureNetworkDescription</code>, but its boundaries are defined entirely by events related to IO.</p>
@@ -192,7 +221,7 @@ domainNetworkDescription (<span class="dt">Inputs</span> eOpen eMessage eHelp eQ
   <span class="kw">in</span>
     return <span class="fu">$</span> <span class="dt">Outputs</span> eWrites eQuits</code></pre></div>
 <p>which can be transformed into what we had before by using the corresponding new functions:</p>
-<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">pureNetworkDescription ::</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">InputIO</span> <span class="ot">-&gt;</span> m <span class="dt">OutputIO</span>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">pureNetworkDescription ::</span> <span class="dt">InputIO</span> <span class="ot">-&gt;</span> <span class="dt">Moment</span> <span class="dt">OutputIO</span>
 pureNetworkDescription i <span class="fu">=</span> <span class="kw">do</span> 
   o <span class="ot">&lt;-</span> domainNetworkDescription <span class="fu">.</span> fanOut <span class="fu">$</span> i
   return <span class="fu">$</span> fanIn o</code></pre></div>
@@ -317,13 +346,30 @@ mergeOutput (<span class="dt">OutputIO</span> eWrite eClose) <span class="fu">=<
   unionWith (<span class="fu">++</span>)
     ((\x <span class="ot">-&gt;</span> [<span class="dt">Write</span> x]) <span class="fu">&lt;$&gt;</span> eWrite)
     ([<span class="dt">Close</span>] <span class="fu">&lt;$</span> eClose)</code></pre></div>
-<p>and we package it up neatly:</p>
+<p>We can package this up as:</p>
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">testNetwork ::</span> (<span class="dt">InputIO</span> <span class="ot">-&gt;</span> <span class="dt">Moment</span> <span class="dt">OutputIO</span>) <span class="ot">-&gt;</span> [<span class="dt">Maybe</span> <span class="dt">InputCmd</span>] <span class="ot">-&gt;</span> <span class="dt">IO</span> [<span class="dt">Maybe</span> [<span class="dt">OutputCmd</span>]]
 testNetwork fn <span class="fu">=</span>
   interpret <span class="fu">$</span> \i <span class="ot">-&gt;</span> <span class="kw">do</span>
     o <span class="ot">&lt;-</span> fn <span class="fu">.</span> fanInput <span class="fu">$</span> i
     return <span class="fu">$</span> mergeOutput o</code></pre></div>
-<p>From that we can create a testing function:</p>
+<p>but that rules out testing event networks operating in <code>MomentIO</code>, which we may not want to do.</p>
+<p>There is a version of <code>interpret</code> that works with <code>MonadIO</code>, namely <code>interpretFrameworks</code>.</p>
+<p>We can capture the common parts in another typeclass:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">class</span> <span class="dt">MonadMoment</span> m <span class="ot">=&gt;</span> <span class="dt">Testable</span> m <span class="kw">where</span>
+<span class="ot">  interpretEvents ::</span> (<span class="dt">Event</span> a <span class="ot">-&gt;</span> m (<span class="dt">Event</span> b)) <span class="ot">-&gt;</span> [<span class="dt">Maybe</span> a] <span class="ot">-&gt;</span> <span class="dt">IO</span> [<span class="dt">Maybe</span> b]</code></pre></div>
+<p>provide the instances:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="kw">instance</span> <span class="dt">Testable</span> <span class="dt">Moment</span> <span class="kw">where</span>
+  interpretEvents <span class="fu">=</span> interpret
+
+<span class="kw">instance</span> <span class="dt">Testable</span> <span class="dt">MomentIO</span> <span class="kw">where</span>
+  interpretEvents <span class="fu">=</span> interpretFrameworks</code></pre></div>
+<p>and generalize <code>testNetwork</code>:</p>
+<div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">testNetwork ::</span> <span class="dt">Testable</span> m <span class="ot">=&gt;</span> (<span class="dt">InputIO</span> <span class="ot">-&gt;</span> m <span class="dt">OutputIO</span>) <span class="ot">-&gt;</span> [<span class="dt">Maybe</span> <span class="dt">InputCmd</span>] <span class="ot">-&gt;</span> <span class="dt">IO</span> [<span class="dt">Maybe</span> [<span class="dt">OutputCmd</span>]]
+testNetwork fn <span class="fu">=</span>
+  interpretEvents <span class="fu">$</span> \i <span class="ot">-&gt;</span> <span class="kw">do</span>
+    o <span class="ot">&lt;-</span> fn <span class="fu">.</span> fanInput <span class="fu">$</span> i
+    return <span class="fu">$</span> mergeOutput o</code></pre></div>
+<p>From that we can create a testing function for our particular network:</p>
 <div class="sourceCode"><pre class="sourceCode haskell"><code class="sourceCode haskell"><span class="ot">testIOCmds ::</span> [<span class="dt">Maybe</span> <span class="dt">InputCmd</span>] <span class="ot">-&gt;</span> <span class="dt">IO</span> [<span class="dt">Maybe</span> [<span class="dt">OutputCmd</span>]]
 testIOCmds <span class="fu">=</span> testNetwork pureNetworkDescription</code></pre></div>
 <p>without having to modify our network description at all.</p>
@@ -341,7 +387,7 @@ testIOCmds <span class="fu">=</span> testNetwork pureNetworkDescription</code></
 , <span class="dt">Just</span> [<span class="dt">Write</span> <span class="st">&quot;Bye&quot;</span>, <span class="dt">Close</span>]
 ]</code></pre></div>
 <p>This looks pretty handy for use with <code>QuickCheck</code> or <code>HUnit</code>.</p>
-<p>We can also do this for any of the components we’ve come across so far - mostly because their inputs and outputs have been made up of events, so the fanning and merging functions are usually doable.</p>
+<p>We can also do this for any of the components we’ve come across so far - mostly because their inputs and outputs have been made up of events, so the fanning and merging functions are usually doable. We’ll have to get a little trickier later on though.</p>
 <h2 id="next-up">Next up</h2>
 <p>The next thing we’ll look at is behaviors, which will help us deal with more complex scenarios in a more modular way.</p>
 <p><a href="./behaviors.html">Onwards!</a></p>
