@@ -12,14 +12,18 @@ module Part2.Example8 (
 import           Reactive.Banana
 import           Reactive.Banana.Frameworks
 
-import Part2.Common
+import           Part2.Common
+
+data ReadInputs = ReadInputs {
+    rieMessage :: Event String
+  , rieHelp    :: Event ()
+  , rieUnknown :: Event String
+  , rieQuit    :: Event ()
+  }
 
 data Inputs = Inputs {
-    ieOpen           :: Event ()
-  , ieMessage        :: Event String
-  , ieHelp           :: Event ()
-  , ieUnknownCommand :: Event String
-  , ieQuit           :: Event ()
+    ieOpen :: Event ()
+  , iReads :: ReadInputs
   }
 
 type Message = String
@@ -29,8 +33,8 @@ command :: String -> Either Message Command
 command ('/':xs) = Right xs
 command xs       = Left xs
 
-fanOut :: InputIO -> Inputs
-fanOut (InputIO eOpen eRead) =
+fanReads :: Event String -> ReadInputs
+fanReads eRead =
   let
     (eMessage, eCommand) = split $ command <$> eRead
 
@@ -40,21 +44,42 @@ fanOut (InputIO eOpen eRead) =
     commands = ["help", "quit"]
     eUnknown = filterE (`notElem` commands) eCommand
   in
-    Inputs eOpen eMessage eHelp eUnknown eQuit
+    ReadInputs eMessage eHelp eUnknown eQuit
 
-data Outputs = Outputs {
-    oeWrite :: [Event String]
-  , oeClose :: [Event ()]
+handleIOInput :: InputIO -> Inputs
+handleIOInput (InputIO eOpen eRead) =
+  Inputs eOpen (fanReads eRead)
+
+data WriteOutputs = WriteOutputs {
+    woeOpen    :: Event String
+  , woeMessage :: Event String
+  , woeHelp    :: Event String
+  , woeUnknown :: Event String
+  , woeQuit    :: Event String
   }
 
-fanIn :: Outputs -> OutputIO
-fanIn (Outputs eWrites eCloses) =
+data Outputs = Outputs {
+    oWrites :: WriteOutputs
+  , oeClose :: Event ()
+  }
+
+mergeWrites :: WriteOutputs -> Event String
+mergeWrites (WriteOutputs eOpen eMessage eHelp eUnknown eQuit) =
   let
     addLine x y = x ++ '\n' : y
-    eCombinedWrites = foldr (unionWith addLine) never eWrites
-    eCombinedCloses = () <$ leftmost eCloses
+    eCombinedWrites = foldr (unionWith addLine) never [
+        eOpen
+      , eMessage
+      , eHelp
+      , eUnknown
+      , eQuit
+      ]
   in
-    OutputIO eCombinedWrites eCombinedCloses
+    eCombinedWrites
+
+handleIOOutput :: Outputs -> OutputIO
+handleIOOutput (Outputs writes eClose) =
+  OutputIO (mergeWrites writes) eClose
 
 helpMessage :: String
 helpMessage =
@@ -81,24 +106,21 @@ networkDescription =
 
 networkDescription' :: InputIO -> Moment OutputIO
 networkDescription' i = do
-  o <- networkDescription'' . fanOut $ i
-  return $ fanIn o
+  o <- networkDescription'' . handleIOInput $ i
+  return $ handleIOOutput o
 
 networkDescription'' :: MonadMoment m => Inputs -> m Outputs
-networkDescription'' (Inputs eOpen eMessage eHelp eUnknown eQuit) =
+networkDescription'' (Inputs eOpen (ReadInputs eMessage eHelp eUnknown eQuit)) =
   let
-    eWrites = [
-        "Hi"           <$  eOpen
-      ,                    eMessage
-      , helpMessage    <$  eHelp
-      , unknownMessage <$> eUnknown
-      , "Bye"          <$  eQuit
-      ]
-    eQuits = [
-        eQuit
-      ]
+    eoWrite =           "Hi" <$  eOpen
+    emWrite =                    eMessage
+    ehWrite =    helpMessage <$  eHelp
+    euWrite = unknownMessage <$> eUnknown
+    eqWrite =          "Bye" <$  eQuit
+    writes  =
+      WriteOutputs eoWrite emWrite ehWrite euWrite eqWrite
   in
-    return $ Outputs eWrites eQuits
+    return $ Outputs writes eQuit
 
 go_2_8 :: IO ()
 go_2_8 =

@@ -24,21 +24,29 @@ data MessageOutput = MessageOutput {
 
 handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage (MessageInput eMessage bLimit) = do
-  bMessages <- accumB [] . fmap (:) $ eMessage
+  bMessages <- accumB [] $
+    (\n x xs -> take n (x : xs)) <$> bLimit <@> eMessage
+
   let
-    f n ms m = m ++ " (previous " ++ show n ++ " messages: " ++ show (take n ms) ++ ")"
-    eOut = f <$> bLimit <*> bMessages <@> eMessage
+    format ls m = m ++ " (previous messages: " ++ show ls ++ ")"
+    bHasMessages = (not . null) <$> bMessages
+    eMessageWithHistory = whenE bHasMessages eMessage
+    eOut = leftmost [
+        format <$> bMessages <@> eMessageWithHistory
+      , eMessage
+      ]
+
   return $ MessageOutput eOut
 
-domainNetworkDescription :: Inputs -> Moment Outputs
-domainNetworkDescription (Inputs eOpen eMessage _ _ eHelp eQuit eUnknown) = do
+networkDescription :: Inputs -> Moment Outputs
+networkDescription (Inputs eOpen (ReadInputs eMessage _ _ eHelp eUnknown eQuit)) = do
   OpenOutput eoWrite        <- handleOpen $ OpenInput eOpen
   MessageOutput emWrite     <- handleMessage $ MessageInput eMessage (pure 3)
   HelpOutput ehWrite        <- handleHelp $ HelpInput eHelp
   QuitOutput eqWrite eqQuit <- handleQuit $ QuitInput eQuit
   UnknownOutput euWrite     <- handleUnknown $ UnknownInput eUnknown
-  return $ Outputs [eoWrite, emWrite, ehWrite, eqWrite, euWrite] [eqQuit]
+  return $ Outputs (WriteOutputs eoWrite emWrite ehWrite euWrite eqWrite) eqQuit
 
 go_3_6 :: IO ()
 go_3_6 =
-   mkGo . mkNetwork . liftDomainNetwork $ domainNetworkDescription
+  mkGo . mkNetwork . handleIO $ networkDescription

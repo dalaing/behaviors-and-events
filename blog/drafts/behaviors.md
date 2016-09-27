@@ -348,8 +348,8 @@ handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage (MessageInput eMessage) = do
   bMessages <- stepper "" eMessage
   let
-    f l m = m ++ " (last message: " ++ l ++ ")"
-    eOut = f <$> bMessages <@> eMessage
+    format l m = m ++ " (last message: " ++ l ++ ")"
+    eOut = format <$> bMessages <@> eMessage
   return $ MessageOutput eOut
 ```
 
@@ -369,8 +369,8 @@ handleMessage (MessageInput eMessage) = do
   bMessages <- stepper "" eMessage
   let
     bLastLength = length <$> bMessages
-    f l m = m ++ " (last message length: " ++ show l ++ ")"
-    eOut = f <$> bLastLength <@> eMessage
+    format l m = m ++ " (last message length: " ++ show l ++ ")"
+    eOut = format <$> bLastLength <@> eMessage
   return $ MessageOutput eOut
 ```
 It also shows that I'm not lying about the `Functor` instance.
@@ -380,13 +380,34 @@ It also shows that I'm not lying about the `Functor` instance.
 We use another function to do more interesting things with behaviors:
 ```haskell
 accumB :: MonadMoment m => a -> Event (a -> a) -> m (Behavior a) 
-accumB x eF = ...
+accumB x eFunction = ...
 ```
 
-On one hand this is like `accumE`, in that it accumulates the composition of the functions inside the various occurrences of the event.
-On the other hand this is a bit like `stepper`, in that the change isn't observable until the next logical moment in time.
+This is like a combination of `stepper` and `accumE`:
+<table><tr><td width=50%>
+```haskell
+toggler :: MonadMoment m 
+        => Event ()
+        -> m (Behavior Colour)
+toggler eInput = do
+  eOutput <- 
+    accumB Red (flip <$ eInput)
+  return eOutput
+```
+</td><td width=50%>
+![](../images/accumB-flip.png)\
+</td></tr></table>
 
-Both `accumE` and `accumB` work nicely with `unions`:
+It is like `accumE` because it accumulates the composition of the functions inside the various occurrences of the event, and it is like `stepper` because the change isn't observable until the next logical moment in time.
+
+Looking at `accumE` and `accumB` side by side might help:
+<table><tr><td width=50%>
+![](../images/accumE-flip.png)\
+</td><td width=50%>
+![](../images/accumB-flip.png)\
+</td></tr></table>
+
+As a reminder, both `accumE` and `accumB` work nicely with `unions`:
 ```haskell
 unions :: [Event (a -> a)] -> Event (a -> a)
 ```
@@ -397,10 +418,13 @@ We can use this to accumulate all of the messages that we've seen:
 -- see Part3.Example3
 handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage (MessageInput eMessage) = do
-  bMessages <- accumB [] . fmap (:) $ eMessage
+  bMessages <- accumB [] $ 
+    (\x xs -> x : xs) <$> eMessage
+
   let
-    f ms m = m ++ " (previous messages: " ++ show ms ++ ")"
-    eOut = f <$> bMessages <@> eMessage
+    format ls m = m ++ " (previous messages: " ++ show ls ++ ")"
+    eOut = format <$> bMessages <@> eMessage
+        
   return $ MessageOutput eOut
 ```
 
@@ -411,29 +435,31 @@ We can filter events using the value of a behavior at the time of the event usin
 whenE :: Behavior Bool -> Event a -> Event a 
 ```
 
-If we want to use the value of the event in the filtering decision, we can use `filterApply`:
-```haskell
-filterApply :: Behavior (a -> Bool) -> Event a -> Event a 
-```
-
 This gives us one (slightly contrived) option for not printing anything special when the history is empty:
 ```haskell
 -- see Part3.Example4
 handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage (MessageInput eMessage) = do
-  bMessages <- accumB [] . fmap (:) $ eMessage
+  bMessages <- accumB [] $
+    (\x xs -> x : xs) <$> eMessage
+
   let
-    f ms m = m ++ " (previous messages: " ++ show ms ++ ")"
+    format ls m = 
+      m ++ 
+      " (previous messages: " ++ show ls ++ ")"
     bHasMessages = (not . null) <$> bMessages
+    eMessageWithHistory = whenE bHasMessages eMessage
     eOut = leftmost [
-        f <$> bMessages <@> whenE bHasMessages eMessage
+        format <$> bMessages <@> eMessageWithHistory
       , eMessage
       ]
+
   return $ MessageOutput eOut
 ```
 
-If there are messages, `bHasMessages` will be `True`. If a message arrives then both of the events leading into `eOut` will be active, and the first event in the list will get used because that's how `leftmost` works.
-If there are no messages, `bHasMessages` will be `False` and `eMessage` will flow through to `eOut` on its own.
+This is a nice example of using `leftmost` as like a `switch-case-default` statement.
+All of the inputs to `leftmost` are based on `eMessages`, but we have made one of them conditional.
+If the condition is met then we get the conditional event, otherwise we get the default event that is the last element in the list.
 
 ### Trimming the history
 
@@ -442,13 +468,24 @@ If we just want to print the last 3 messages that we've seen we can do that:
 -- see Part3.Example5
 handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage (MessageInput eMessage) = do
-  bMessages <- accumB [] . fmap (:) $ eMessage
+  bMessages <- accumB [] $
+    (\x xs -> take 3 (x : xs)) <$> eMessage
+
   let
-    bLimitedMessages = take 3 <$> bMessages
-    f ms m = m ++ " (previous 3 messages: " ++ show ms ++ ")"
-    eOut = f <$> bLimitedMessages <@> eMessage
+    format ls m = m ++ " (previous messages: " ++ show ls ++ ")"
+    bHasMessages = (not . null) <$> bMessages
+    eMessageWithHistory = whenE bHasMessages eMessage
+    eOut = leftmost [
+        format <$> bMessages <@> eMessageWithHistory
+      , eMessage
+      ]
+
   return $ MessageOutput eOut
 ```
+
+We do the trimming inside of the accumulation so that we don't have a `Behavior` with collecting a list with unbounded length floating around in our system.
+
+Hard-coding the `3` in there should be making us feel a little ill.
 
 Maybe we want the number of messages to be configurable, or we want to tie it to a modifiable setting.
 We can get some future proofing for that by passing in the number of messages that we want as a behavior.
@@ -465,31 +502,23 @@ data MessageInput = MessageInput {
 
 handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
 handleMessage (MessageInput eMessage bLimit) = do
-  bMessages <- accumB [] . fmap (:) $ eMessage
+  bMessages <- accumB [] $
+    (\n x xs -> take n (x : xs)) <$> bLimit <@> eMessage
+
   let
-    f n ms m = m ++ " (previous " ++ show n ++ " messages: " ++ show (take n ms) ++ ")"
-    eOut = f <$> bLimit <*> bMessages <@> eMessage
+    format ls m = m ++ " (previous messages: " ++ show ls ++ ")"
+    bHasMessages = (not . null) <$> bMessages
+    eMessageWithHistory = whenE bHasMessages eMessage
+    eOut = leftmost [
+        format <$> bMessages <@> eMessageWithHistory
+      , eMessage
+      ]
+
   return $ MessageOutput eOut
 ```
 
 If we want to hard-code a limit of 3 for the time being, we can set it up with `pure 3`.
 Later on, we might add some code for admins to alter the limit - if that contributes to a behavior, and if our various components take their parameters as behaviors, then all we need to do is wire it up to our components.
-
-There's a problem though: `bMessages` accumulates all of the messages and never frees up any memory.
-
-For a fixed limit, we can just bring the `take 3` code into the `accumB`:
-```haskell
--- see Part3.Example7
-handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
-handleMessage (MessageInput eMessage) = do
-  let
-    limitCons n x xs = take n (x : xs)
-  bMessages <- accumB [] . fmap (limitCons 3) $ eMessage
-  let
-    f ms m = m ++ " (last 3 messages: " ++ show ms ++ ")"
-    eOut = f <$> bMessages <@> eMessage
-  return $ MessageOutput eOut
-```
 
 ### A component for the history limit
 
@@ -499,6 +528,7 @@ Let's assume that the limit on the history starts at 1, and is modified by two e
 
 We can build a behavior for the limit using `accumB`:
 ```haskell
+-- see Part3.Example7
 data LimitInput = LimitInput {
     lieLimitUp   :: Event ()
   , lieLimitDown :: Event ()
@@ -531,24 +561,22 @@ handleLimit (LimitInput eUp eDown) = mdo
   return $ LimitOutput bLimit
 ```
 
-As long as your behaviors recurse through intermediate events and your events through intermediate behaviors, `reactive-banana` will take care of you.
-
-The behavior gives us a step function, but what we're going to end up wanting is an event that triggers when the behavior changes.
+The behavior gives us something like a step function, but we might end up wanting an event that triggers when the behavior changes.
 
 We can do that with `accumE`:
 ```haskell
 eLimit <- accumE 1 . unions $ [
-    (+ 1) <$ eUp
-  , (max 0 . subtract 1) <$ eDown
+    succ <$ eUp
+  , (max 0 . pred) <$ eDown
   ]
 ```
 
-We are going to end up needing both, and we can efficiently combine the two of these by using `mapAccum`:
+If we wind up needing both, we can efficiently combine the two of these by using `mapAccum`:
 ```haskell
 mapAccum :: MonadMoment m => acc -> Event (acc -> (x, acc)) -> m (Event x, Behavior acc) 
 ```
 
-We can use this to create a new component that will give as both a behavior tracking the number of messages we should be displaying and an event that lets us known when that value has changed:
+This version uses `mapAccum` to do this:
 ```haskell
 data LimitInput = LimitInput {
     lieLimitUp :: Event ()
@@ -569,53 +597,120 @@ handleLimit (LimitInput eUp eDown) = do
   return $ LimitOutput eLimit bLimit
 ```
 
-Having both a behavior and an event that triggers when the behavior changes can be handy.
+Having both a behavior and an event that triggers when the behavior changes can be handy, so you'll see this idiom appear in a few of the `reactive-banana` examples floating around on the internet.
 
-### Trimming the history
+It's useful in this example as well.
 
-With the limit component in hand we can prepare a component to manage and print the message history.
+Let's have a look at a sample interaction with our program:
+```haskell
+> a
+a
+> b
+b (previous messages: ["a"])
+> c
+c (previous messages: ["b"])
+> /limitup
+> d
+d (previous messages: ["c"])         -- (1)
+> e
+e (previous messages: ["d","c"])
+> f
+f (previous messages: ["e","d"])
+> /limitup
+> g
+g (previous messages: ["f","e"])
+> h
+h (previous messages: ["g","f","e"])
+> i
+i (previous messages: ["h","g","f"])
+> /limitdown
+> j
+j (previous messages: ["i","h","g"]) -- (2)
+> k
+k (previous messages: ["j","i"])
+> l
+l (previous messages: ["k","j"])
+```
+Notes:
 
-We set up our inputs and outputs:
+1. This is fine - we have raised the limit, but have fewer messages in history than the limit.
+2. This is less good - we have lowered the limit, another message has come through, and we're still storing more than the current limit.
+
+It's not the end of the world, but we'd like to trim that history a little sooner.
+
+In order to do that we'll use the version of the 'limit' component that produces both an event and a behavior, and we'll update our 'message' component to make use of it:
 ```haskell
 data MessageInput = MessageInput {
     mieMessage :: Event String
-  , mieLimit :: Event Int
-  , mibLimit :: Behavior Int
+  , mieLimit   :: Event Int
+  , mibLimit   :: Behavior Int
   }
 
 data MessageOutput = MessageOutput {
     moeWrite :: Event String
   }
-```
-and then we connect them up:
-```haskell
--- see Part3.Example8
-addMessage :: Int -> String -> [String] -> [String]
-addMessage n m ms =
-  take n (m : ms)
 
-handleMessage :: MonadMoment m => MessageInput -> m MessageOutput
+handleMessage :: MessageInput -> Moment MessageOutput
 handleMessage (MessageInput eMessage eLimit bLimit) = do
-  bMessage <- accumB [] . unions $ [
-      take <$> eLimit
-    , addMessage <$> bLimit <@> eMessage
+  bMessages <- accumB [] $ unions [
+      (\n x xs -> take n (x : xs)) <$> bLimit <@> eMessage
+    , take <$> eLimit                                              -- (1)
     ]
+
   let
-    f l h m = m ++ " (last " ++ show l ++ "message: " ++ show h ++ ")"
-    eWrite = f <$> bLimit <*> bMessage <@> eMessage
-  return $ MessageOutput eWrite
+    format ls m = m ++ " (previous messages: " ++ show ls ++ ")"
+    bHasMessages = (not . null) <$> bMessages
+    eMessageWithHistory = whenE bHasMessages eMessage
+    eOut = leftmost [
+        format <$> bMessages <@> eMessageWithHistory
+      , eMessage
+      ]
+
+  return $ MessageOutput eOut
 ```
+Notes:
 
-When the limit changes, we trim the list.
-When a message comes in, we add the message to the front of the list and then trim it to the current limit.
+1. We trim the messages when we get an event indicating that the limit has changed.
 
-This would be useful if we needed to immediately reclaim the memory when the limit changes, but we could probably just make do with a version of `handleLimit` which just returns a `Behavior` and let `addMessage` handle the trimming of the history.
+Now that same interaction with the new program looks like this:
+```haskell
+> a
+a
+> b
+b (previous messages: ["a"])
+> c
+c (previous messages: ["b"])
+> /limitup
+> d
+d (previous messages: ["c"])
+> e
+e (previous messages: ["d","c"])
+> f
+f (previous messages: ["e","d"])
+> /limitup
+> g
+g (previous messages: ["f","e"])
+> h
+h (previous messages: ["g","f","e"])
+> i
+i (previous messages: ["h","g","f"])
+> /limitdown
+> j
+j (previous messages: ["i","h"])     -- (1)
+> k
+k (previous messages: ["j","i"])
+> l
+l (previous messages: ["k","j"])
+```
+Notes
+
+1. The message history has been trimmed in a timely fashion.
 
 ## Testing with behaviors
 
-This will be filled in once I have my talk finished...
-<!--
+This will be filled in once I have dealt with some rough edges.
 
+<!-- 
 This next section is a bit gory, but is here to demonstrate that you can test event networks which have behaviors in their inputs and outputs if you're willing to get your hands dirty.
 
 If that doesn't sound like your cup of tea, feel free to [skip ahead](./components.html).
@@ -644,7 +739,6 @@ class Fannable b e where
 The idea here is that we'll use the input events and the values in `cmdB` to reconstitute the behaviors using `stepper`.
 
 For the outputs we make a similar change.
-
 We carry the behaviors and possibly multiple simultaneous events in our data type:
 ```haskell
 data Result b e = Result {
@@ -661,7 +755,8 @@ class Mergable b e where
   mergeOutput :: Event () -> ToMerge b e -> Event (Result b e)
 ```
 
-The extra argument is used to sample the output behaviors, so we will know what their values are at each point in time that is observable by the event network.
+We will use the input event to our event network for this extra argument, which will provide an event for every observable point of time in our event network.
+We use this to sample the output behaviors.
 
 We see this at work in the version of `testNetwork`:
 ```haskell
@@ -679,58 +774,65 @@ testNetwork fn =
     return $ mergeOutput (() <$ i) o
 ```
 
-
 We'll also add some helper functions for `Fannable`:
 ```haskell
-filterPrism :: Prism' s a -> Event s -> Event a
-filterPrism p e = 
-  filterJust $ preview p <$> e
+fanE :: (Testable m, Fannable b e) 
+     => Prism' e a                -- ^ a prism used to extract this particular Event
+     -> Event (Command b e)       -- ^ the combined Event we're extracting this Event from
+     -> m (Event a)               -- ^ the particular Event we are after
 
-fanE :: (Testable m, Fannable b e) => Prism' e a -> Event (Command b e) -> m (Event a)
-fanE p = 
-  return . filterPrism p . fmap _cmdE
-
-stepperLens :: MonadMoment m => a -> Lens' s a -> Event s -> m (Behavior a)
-stepperLens x l e = 
-  stepper x (view l <$> e)
-
-fanB :: (Testable m, Fannable b e) => a -> Lens' b a -> Event (Command b e) -> m (Behavior a)
-fanB x l = 
-  stepperLens x (cmdB . l)
+fanB :: (Testable m, Fannable b e) 
+     => a                         -- ^ the initial value for the Behavior we're extracting
+     -> Lens' b a                 -- ^ a lens to used to extract this particular Behavior 
+                                  --   from our combined Behavior type b
+     -> Event (Command b e)       -- ^ the combined Event we're extracting this Behavior from
+     -> m (Behavior a)            -- ^ the reconstituted Behavior
 ```
 and for `Mergable`:
 ```haskell
+-- We're grabbing the values of multiple Events, without knowing if they're happening simultaneously.
+-- We want to track this - which is why we record a list of event values per time slice.
+-- On top of all of that, we're also sampling the Behaviors at every point in time, so there's collisions 
+-- happening there as well.
+-- 
+-- We use this function with `unionWith` to sort that out.
 combineResult :: Result b e -> Result b e -> Result b e
 combineResult (Result b1 e1) (Result b2 e2) =
-  Result b1 (e1 ++ e2)
+  Result 
+    -- When this collision happens, it'll happen at the same point in time, so the two sampled values for the 
+    -- Behaviors should be the same, so we can just chose either one.
+    b1 
+    -- When we sample a Behavior, we use an empty list for the Event portion of the Result
+    (e1 ++ e2)
 
-class Mergable b e where
-  type ToMerge b e
-  mergeOutput :: Event () -> ToMerge b e -> Event (Result b e)
+mergeE :: Mergable b e 
+       => Behavior b 
+       -> Prism' e a 
+       -> Event a 
+       -> Event (Result b e)
 
-mergeE :: Mergable b e => Behavior b -> Prism' e a -> Event a -> Event (Result b e)
-mergeE b p e =
-  (\bv ev -> Result bv [review p ev]) <$> b <@> e
-
-mergeB :: Mergable b e => Behavior b -> Event () -> Event (Result b e)
-mergeB b e =
-  (\bv -> Result bv []) <$> b <@ e
+mergeB :: Mergable b e 
+       => Behavior b 
+       -> Event () 
+       -> Event (Result b e)
 ```
 
 Let's take a look at them in action.
 
 ### Testing `handleLimit`
 
+TODO mention that we're working with the version that outputs both events and behaviors
+
 ```haskell
-data LimitInputCmd =
+data LimitInputE =
     LLimitUp
   | LLimitDown
   deriving (Eq, Ord, Show)
 
-makePrisms ''LimitInputCmd
+makePrisms ''LimitInputE
 
-instance Fannable () LimitInputCmd where
-  type Fanned () LimitInputCmd = LimitInput
+instance Fannable () LimitInputE where
+  type Fanned () LimitInputE = LimitInput
   fanInput eIn =
     LimitInput <$>
       fanE _LLimitUp eIn <*>
@@ -738,25 +840,32 @@ instance Fannable () LimitInputCmd where
 ```
 
 ```haskell
-data LimitOutputEvent =
-    LLimit Int
-  deriving (Eq, Ord, Show)
-
-makePrisms ''LimitOutputEvent
-
-data LimitOutputCmd = LimitOutputCmd {
-    locbLimit :: Int
-  , loceLimit :: [LimitOutputEvent]
-  } deriving (Eq, Ord, Show)
-
-makeLenses ''LimitOutputCmd
-
-instance Mergable Int LimitOutputEvent where
-  type ToMerge Int LimitOutputEvent = LimitOutput
+instance Mergable Int Int where
+  type ToMerge Int Int = LimitOutput
   mergeOutput eSample (LimitOutput eLimit bLimit) =
     unionWith combineResult
-      (mergeE bLimit _LLimit eLimit)
+      (mergeE bLimit id eLimit)
       (mergeB bLimit eSample)
+```
+
+```haskell
+testLimit ::    [Maybe (Command () LimitInputE)] 
+          -> IO [Maybe (Result Int Int)]
+testLimit = 
+  testNetwork handleLimit
+```
+
+```haskell
+> xs <- testLimit [
+    Just (Command () LLimitUp)
+  , Just (Command () LLimitUp)
+  , Just (Command () LLimitDown)
+  ]
+> xs
+[ Just (Result {_resB = 1, _resE = [2]})
+, Just (Result {_resB = 2, _resE = [3]})
+, Just (Result {_resB = 3, _resE = [2]})
+]
 ```
 
 ### Testing `handleMessage`
@@ -764,40 +873,36 @@ instance Mergable Int LimitOutputEvent where
 TODO talk about how we test handleMessage, se we can see what happens with behaviors in the inputs
 
 ```haskell
-data MessageInputEvent =
+data MessageInputE =
     MMessage String
   | MLimit Int
   deriving (Eq, Ord, Show)
 
-makePrisms ''MessageInputEvent
+makePrisms ''MessageInputE
 
-data MessageInputCmd = MessageInputCmd {
-    _micbLimit :: Int
-  , _micEvent :: MessageInputEvent
-  } deriving (Eq, Ord, Show)
-
-makeLenses ''MessageInputCmd
-
-instance Fannable Int MessageInputEvent where
-  type Fanned Int MessageInputEvent = MessageInput
+instance Fannable Int String where
+  type Fanned Int MessageInputE = MessageInput
   fanInput eIn =
     MessageInput <$>
       fanE _MMessage eIn <*>
-      fanE _MLimit eIn <*>
       fanB 0 id eIn
+```
 
-data MessageOutputCmd =
-  MWrite String
-  deriving (Eq, Ord, Show)
-
-makePrisms ''MessageOutputCmd
-
-instance Mergable () MessageOutputCmd where
-  type ToMerge () MessageOutputCmd = MessageOutput
+```haskell
+instance Mergable () String where
+  type ToMerge () String = MessageOutput
   mergeOutput _ (MessageOutput eWrite) =
     mergeE (pure ()) _MWrite eWrite
 ```
+
+```haskell
+testMessage ::    [Maybe (Command Int String)] 
+            -> IO [Maybe (Result () String)]
+testMessage = 
+  testNetwork handleMessage
+```
 -->
+
 ## Next up
 
 Now that we have some idea of what we can do with behaviors, we're going to start putting together some of the pieces we'll end up using in our chat server.

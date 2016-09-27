@@ -8,6 +8,7 @@ Portability : non-portable
 module Part5.Switch (
     Switch(..)
   , switchAp
+  , once
   ) where
 
 import Reactive.Banana
@@ -36,4 +37,8 @@ instance (Switch a, Switch b) => Switch (a, b) where
 
 switchAp :: (Switch b, MonadMoment m) => (a -> b) -> a -> Event a -> m b
 switchAp f a e = switch (f a) (f <$> e)
+
+once :: MonadMoment m => Event a -> m (Event a)
+once e = switch e (never <$ e)
+
 

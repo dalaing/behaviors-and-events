@@ -21,19 +21,19 @@ handleMessage (MessageInput eMessage) = do
   bMessages <- stepper "" eMessage
   let
     bLastLength = length <$> bMessages
-    f l m = m ++ " (last message length: " ++ show l ++ ")"
-    eOut = f <$> bLastLength <@> eMessage
+    format l m = m ++ " (last message length: " ++ show l ++ ")"
+    eOut = format <$> bLastLength <@> eMessage
   return $ MessageOutput eOut
 
-domainNetworkDescription :: Inputs -> Moment Outputs
-domainNetworkDescription (Inputs eOpen eMessage _ _ eHelp eQuit eUnknown) = do
+networkDescription :: Inputs -> Moment Outputs
+networkDescription (Inputs eOpen (ReadInputs eMessage _ _ eHelp eUnknown eQuit)) = do
   OpenOutput eoWrite        <- handleOpen $ OpenInput eOpen
   MessageOutput emWrite     <- handleMessage $ MessageInput eMessage
   HelpOutput ehWrite        <- handleHelp $ HelpInput eHelp
   QuitOutput eqWrite eqQuit <- handleQuit $ QuitInput eQuit
   UnknownOutput euWrite     <- handleUnknown $ UnknownInput eUnknown
-  return $ Outputs [eoWrite, emWrite, ehWrite, eqWrite, euWrite] [eqQuit]
+  return $ Outputs (WriteOutputs eoWrite emWrite ehWrite euWrite eqWrite) eqQuit
 
 go_3_2 :: IO ()
 go_3_2 =
-  mkGo . mkNetwork . liftDomainNetwork $ domainNetworkDescription
+  mkGo . mkNetwork . handleIO $ networkDescription

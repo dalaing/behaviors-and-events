@@ -57,7 +57,7 @@ networkDescription (InputIO eOpen eRead) = mdo
     bGreeting = pure "Welcome to the chat server."
   bNames <- accumB (S.fromList ["root", "admin"]) (S.insert <$> eName)
 
-  eName <- switch enName (never <$ enName)
+  eName <- once enName
 
   let
     enRead = whenE ((== NamePrompting) <$> bPhase) eRead

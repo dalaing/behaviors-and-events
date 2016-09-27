@@ -10,8 +10,10 @@ Portability : non-portable
 {-# LANGUAGE TemplateHaskell #-}
 module Part3.Common.Domain (
     Inputs(..)
+  , ReadInputs(..)
   , Outputs(..)
-  , liftDomainNetwork
+  , WriteOutputs(..)
+  , handleIO
   , InputsCmd(..)
   , OutputsCmd(..)
   ) where
@@ -24,62 +26,78 @@ import Part3.Common.Util
 import Part3.Common.IO
 import Part3.Common.Testing
 
+data ReadInputs = ReadInputs {
+    rieMessage        :: Event String
+  , rieLimitUp        :: Event ()
+  , rieLimitDown      :: Event ()
+  , rieHelp           :: Event ()
+  , rieUnknownCommand :: Event String
+  , rieQuit           :: Event ()
+  }
+
 data Inputs = Inputs {
-    ieOpen             :: Event ()
-  , ieMessage          :: Event String
-  , ieHistoryLimitUp   :: Event ()
-  , ieHistoryLimitDown :: Event ()
-  , ieHelp             :: Event ()
-  , ieQuit             :: Event ()
-  , ieUnknownCommand   :: Event String
+    ieOpen :: Event ()
+  , iReads :: ReadInputs
+  }
+
+command :: String -> Either String String
+command ('/':xs) = Right xs
+command xs       = Left xs
+
+fanReads :: Event String -> ReadInputs
+fanReads eRead =
+  let
+    (eMessage, eCommand) = split $ command <$> eRead
+
+    eLimitUp   =   () <$ filterE (== "limitup")   eCommand
+    eLimitDown =   () <$ filterE (== "limitdown") eCommand
+    eHelp      =   () <$ filterE (== "help")      eCommand
+    eQuit      =   () <$ filterE (== "quit")      eCommand
+
+    commands = ["limitup", "limitdown", "help", "quit"]
+    eUnknown = filterE (`notElem` commands) eCommand
+  in
+    ReadInputs eMessage eLimitUp eLimitDown eHelp eUnknown eQuit
+
+handleIOInput :: InputIO -> Inputs
+handleIOInput (InputIO eOpen eRead) =
+  Inputs eOpen (fanReads eRead)
+
+data WriteOutputs = WriteOutputs {
+    woeOpen    :: Event String
+  , woeMessage :: Event String
+  , woeHelp    :: Event String
+  , woeUnknown :: Event String
+  , woeQuit    :: Event String
   }
 
 data Outputs = Outputs {
-    oeWrite :: [Event String]
-  , oeClose :: [Event ()]
+    oWrites :: WriteOutputs
+  , oeClose :: Event ()
   }
 
-fanOut :: InputIO -> Inputs
-fanOut (InputIO eOpen eRead) =
-  let
-    eReadNonEmpty =
-      filterE (not . null) eRead
-
-    isMessage =
-      (/= "/") . take 1
-    eMessage =
-      filterE isMessage eReadNonEmpty
-
-    isCommand =
-      (== "/") . take 1
-    eCommand =
-      fmap (drop 1) . filterE isCommand $ eReadNonEmpty
-
-    eLimitUp   = () <$ filterE (== "limitup") eCommand
-    eLimitDown = () <$ filterE (== "limitdown") eCommand
-    eHelp      = () <$ filterE (== "help") eCommand
-    eQuit      = () <$ filterE (== "quit") eCommand
-
-    commands =
-      ["limitup", "limitdown", "help", "quit"]
-    eUnknownCommand =
-      filterE (`notElem` commands) eCommand
-  in
-    Inputs eOpen eMessage eLimitUp eLimitDown eHelp eQuit eUnknownCommand
-
-fanIn :: Outputs -> OutputIO
-fanIn (Outputs eWrites eCloses) =
+mergeWrites :: WriteOutputs -> Event String
+mergeWrites (WriteOutputs eOpen eMessage eHelp eUnknown eQuit) =
   let
     addLine x y = x ++ '\n' : y
-    eCombinedWrites = foldr (unionWith addLine) never eWrites
-    eCombinedCloses = () <$ leftmost eCloses
+    eCombinedWrites = foldr (unionWith addLine) never [
+        eOpen
+      , eMessage
+      , eHelp
+      , eUnknown
+      , eQuit
+      ]
   in
-    OutputIO eCombinedWrites eCombinedCloses
+    eCombinedWrites
 
-liftDomainNetwork :: MonadMoment m => (Inputs -> m Outputs) -> InputIO -> m OutputIO
-liftDomainNetwork n i = do
-  o <- n . fanOut $ i
-  return $ fanIn o
+handleIOOutput :: Outputs -> OutputIO
+handleIOOutput (Outputs writes eClose) =
+  OutputIO (mergeWrites writes) eClose
+
+handleIO :: MonadMoment m => (Inputs -> m Outputs) -> InputIO -> m OutputIO
+handleIO n i = do
+  o <- n . handleIOInput $ i
+  return $ handleIOOutput o
 
 data InputsCmd =
     Open
@@ -96,14 +114,19 @@ makePrisms ''InputsCmd
 instance Fannable () InputsCmd where
   type Fanned () InputsCmd = Inputs
   fanInput eIn =
-    Inputs <$>
-      fanE _Open eIn <*>
-      fanE _Message eIn <*>
-      fanE _LimitUp eIn <*>
-      fanE _LimitDown eIn <*>
-      fanE _Help eIn <*>
-      fanE _Quit eIn <*>
-      fanE _Unknown eIn
+    let
+      readInputs =
+        ReadInputs <$>
+          fanE _Message eIn <*>
+          fanE _LimitUp eIn <*>
+          fanE _LimitDown eIn <*>
+          fanE _Help eIn <*>
+          fanE _Unknown eIn <*>
+          fanE _Quit eIn
+    in
+      Inputs <$>
+        fanE _Open eIn <*>
+        readInputs
 
 data OutputsCmd =
     Write String
@@ -114,12 +137,7 @@ makePrisms ''OutputsCmd
 
 instance Mergable () OutputsCmd where
   type ToMerge () OutputsCmd = Outputs
-  mergeOutput _ (Outputs eWrite eClose) =
+  mergeOutput _ (Outputs (WriteOutputs eoWrite emWrite ehWrite euWrite eqWrite) eClose) =
     foldr (unionWith combineResult) never $
-      (fmap (mergeE (pure ()) _Write) eWrite) ++
-      (fmap (mergeE (pure ()) _Close) eClose)
-    {-
-    unionWith combineResult
-      (fmap (mergeE (pure ()) _Write) eWrite)
-      (fmap (mergeE (pure ()) _Close) eClose)
-    -}
+      mergeE (pure ()) _Close eClose :
+      (mergeE (pure()) _Write <$> [eoWrite, emWrite, ehWrite, euWrite, eqWrite])

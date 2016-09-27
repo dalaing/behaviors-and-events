@@ -1,6 +1,6 @@
 ---
 title: Components for a chat server
-published: 2016-09-01 12:00:00+10:00
+published: 2016-10-01 12:00:00+10:00
 ---
 
 [Previously](./behaviors.html) we got used to the basics of behaviors.
@@ -9,6 +9,62 @@ published: 2016-09-01 12:00:00+10:00
 
 We're going to start writing bits and pieces that we'll be able to reuse with out chat server.
 Since we're only interacting with one user from the command line, we'll be focusing on the pieces that we'll be using for each of the client connections, with the console standing in for actual sockets.
+
+There are three components that we'll be creating here:
+
+- a component to handle delivering notifications to the user
+- a component to prompt a user for a valid and unique nickname
+- a component to handle command processing, which will be an extended form of what we already have
+
+## Notifications
+
+We are making a distinction between two types of output to the user.
+
+A notification is any chat server event that needs to be communicated to let people know what is going on - these include notifications for when people join or quit, when they send messages, and so on.
+
+The other kind of output is for communication directly with the client.
+This includes displaying help and error messages, and will also include the display of any notifications we want to present to the user.
+
+We are making this distinction because we have two ways of dealing with notifications.
+
+The first - and simplest - is to display them to the user as they come in.
+The second is to collect the notifications (up to some bounds) until the user requests them, at which time we display the contents of the notification queue and then clear it.
+
+Why would we want both of these options?
+We'll see in a little while.
+
+### Data type for notifications
+
+```haskell
+data Notification =
+    NJoin User
+  | NMessage User Message
+  | NTell User User Message
+  | NKick User User
+  | NQuit User
+  deriving (Eq, Ord, Show)
+```
+
+We need to be able to convert these into `String`s:
+```haskell
+notificationMessage :: Notification -> String
+notificationMessage (NJoin user) =
+  user ++ " has joined"
+notificationMessage (NMessage user message) =
+  "<" ++ user ++ ">: " ++ message
+notificationMessage (NTell userFrom userTo message) =
+  "*" ++ userFrom ++ "*: " ++ message
+notificationMessage (NKick kicker kickee) =
+  kicker ++ " has kicked " ++ kickee
+notificationMessage (NQuit user) =
+  user ++ " has quit"
+```
+
+TODO data types for the components
+
+### Streaming notifications
+
+### Batching notifications
 
 ## Prompting for a name
 
@@ -155,17 +211,17 @@ This _could_ also be split out into two smaller components - one for handling th
 
 ## Processing commands
 
-At the moment we're aiming for parity with the chat server described in Parallel and Concurrent Programming in Haskell.
+The commands we are going to implement are modeled after the server in Parallel and Concurrent Programming in Haskell:
 
-To reach that, we'll need to be able to handle the following:
+- `message...`            will send a message to all users
+- `/tell user message...` will send a private message to `user`
+- `/kick user`            will kick a user off the server
+- `/quit`                 will exit the server
 
-- a string not starting with "/" should send a message to all users
-- /tell <user> message should send a private message to another user
-- /kick <user> should kick another user
-- /quit should exit
+We also have added:
 
-We'll also add:
-- /help should display a help message
+- `/fetch`                will fetch any pending notifications (if relevant)
+- `/help`                 will print out a help message
 
 ### Notifications and other output
 
@@ -185,21 +241,6 @@ data Notification =
   | NKick User User
   | NQuit User
   deriving (Eq, Ord, Show)
-```
-
-We'll also write a function to convert them into a `String`:
-```haskell
-notificationMessage :: Notification -> String
-notificationMessage (NJoin user) =
-  user ++ " has joined"
-notificationMessage (NMessage user message) =
-  "<" ++ user ++ ">: " ++ message
-notificationMessage (NTell userFrom userTo message) =
-  "*" ++ userFrom ++ "*: " ++ message
-notificationMessage (NKick kicker kickee) =
-  kicker ++ " has kicked " ++ kickee
-notificationMessage (NQuit user) =
-  user ++ " has quit"
 ```
 
 We'll be working with a component that has an `Event Notification` as both an input and as an output.
@@ -339,4 +380,5 @@ TODO
 We've seen two components of the chat server - one for prompting a user for their name, and another for processing the commands that they issue.
 
 Next we'll look at how to link them together so that they are used one after the other.
+
 [Onwards!](./filtering-and-switching.html)

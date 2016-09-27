@@ -47,7 +47,6 @@ library
                      , Part3.Example5
                      , Part3.Example6
                      , Part3.Example7
-                     , Part3.Example8
                      , Part4.Common
                      , Part4.Common.Util
                      , Part4.Common.Testing

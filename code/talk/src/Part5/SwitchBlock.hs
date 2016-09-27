@@ -59,18 +59,11 @@ networkDescription (InputIO eOpen eRead) = mdo
     bGreeting = pure "Welcome to the chat server."
   bNames <- accumB (S.fromList ["root", "admin"]) (S.insert <$> eName)
 
-  eName <- switch eowName (never <$ eowName)
-
-  -- we're doing observe-then-switch
-  -- would be nice to switch-then-observe
+  eName <- once eowName
 
   let
     nameBlock = fmap wrapName . handleName $ NameInput eOpen eRead bGreeting bNames
     cmdBlock = fmap wrapCmd . handleCommand $ CommandInput eRead bNames bName
-
-  -- switch and then observeE means we need a switch returning (Event (Moment a)), from which we'll get a
-  -- Moment a
-  -- observeE and then switch is easier to deal with
 
   OutputWrapper eowWrite eClose eowName eNotify eFetch eKick <- join $ switch nameBlock (cmdBlock <$ eName)
 

@@ -44,14 +44,6 @@ networkDescription (InputIO eOpen eRead) = mdo
     ]
   bName <- stepper "" eName
 
-  -- if we use () <$ eName to trigger the open, we'll end up sampling bName before the name has come through when
-  -- we try to create the open notification
-  -- alternative: add a delay (moves things into IO)
-  -- alternative: have handleCommand return (a, m b), fmap eName over that 
-  -- - observe Event (m b) to make it happen
-  -- - use Event a as output - how does it get into the notification stream?
-  -- alternative: handleCommand returns (a -> m b), fmap over eName :: Event a and observe
-  -- - can use that to set up a pure behavior for the name
   -- what do all of these look like when you change the nickname?
   let
     ecRead = whenE ((== CommandProcessing) <$> bPhase) eRead

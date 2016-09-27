@@ -395,7 +395,7 @@ networkDescription =
   mkNetwork networkDescription'
 ```
 
-Another option would be to give `pureNetworkDescription` a more abstract type:
+Another option would be to give `networkDescription'` a more abstract type:
 ```haskell
 networkDescription' :: MonadMoment m => InputIO -> m OutputIO 
 ```
@@ -423,23 +423,31 @@ We're currently not doing any IO in `networkDescription'`, but its boundaries ar
 
 We can add another layer of indirection here in order to get away from having to express things in those terms.
 
-We start, as we usually do, by making a new data type.
+We start, as we usually do, by creating new data types.
 
-This one collects our domain events:
+We collect the domain events that arise from reading a line:
+```haskell
+data ReadInputs = ReadInputs {
+    rieMessage :: Event String
+  , rieHelp    :: Event ()
+  , rieUnknown :: Event String
+  , rieQuit    :: Event ()
+  }
+```
+and in addition to that we pass through the 'open' event:
 ```haskell
 data Inputs = Inputs {
-    ieOpen    :: Event ()
-  , ieMessage :: Event String
-  , ieHelp    :: Event ()
-  , ieUnknown :: Event String
-  , ieQuit    :: Event ()
+    ieOpen :: Event ()
+  , iReads :: ReadInputs
   }
 ```
 
-We then add separate out the code the translates the IO events to domain events:
+We then separate out the code the translates the IO events to domain events.
+
+We start with the reads:
 ```haskell
-fanOut :: InputIO -> Inputs
-fanOut (InputIO eOpen eRead) =
+fanReads :: Event String -> ReadInputs
+fanReads eRead =
   let
     (eMessage, eCommand) = split $ command <$> eRead
 
@@ -449,74 +457,84 @@ fanOut (InputIO eOpen eRead) =
     commands = ["help", "quit"]
     eUnknown = filterE (`notElem` commands) eCommand
   in
-    Inputs eOpen eMessage eHelp eUnknown eQuit
+    ReadInputs eMessage eHelp eUnknown eQuit
 ```
-
-At the moment we won't be going to go quite as far with the outputs.
-
-We could do something very fine-grained:
+and then wrap that up to get the function we need:
 ```haskell
-data Outputs = Outputs {
-    oeOpenWrite    :: Event String
-  , oeMessageWrite :: Event String
-  , oeHelpWrite    :: Event String
-  , oeQuitWrite    :: Event String
-  , oeUnknownWrite :: Event String
-  , oeClose        :: Event ()
-  }
+handleIOInput :: InputIO -> Inputs
+handleIOInput (InputIO eOpen eRead) =
+  Inputs eOpen (fanReads eRead)
 ```
-and then think long and hard about how we're going to combine all of those events.
 
-What we will do instead is handle how the various output IO events get combined, so that we don't have to think about those kind of things while we're working on the domain specific part of the event network.
+We go through the same process with the outputs:
+```haskell
+data WriteOutputs = WriteOutputs {
+    woeOpen    :: Event String
+  , woeMessage :: Event String
+  , woeHelp    :: Event String
+  , woeUnknown :: Event String
+  , woeQuit    :: Event String
+  }
 
-- If there are multiple write events at the same time, we want to concatenate those values.
-- If there are multiple quit events at the same time, we just want one of them.
+data Outputs = Outputs {
+    oWrites :: WriteOutputs
+  , oeClose :: Event ()
+  }
 
-We capture the events we want to combine in a data structure:
+mergeWrites :: WriteOutputs -> Event String
+mergeWrites (WriteOutputs eOpen eMessage eHelp eUnknown eQuit) =
+  let
+    addLine x y = x ++ '\n' : y
+    eCombinedWrites = foldr (unionWith addLine) never [
+        eOpen
+      , eMessage
+      , eHelp
+      , eUnknown
+      , eQuit
+      ]
+  in
+    eCombinedWrites
+
+handleIOOutput :: Outputs -> OutputIO
+handleIOOutput (Outputs writes eClose) =
+  OutputIO (mergeWrites writes) eClose
+```
+
+While I was prototyping all of this I used:
 ```haskell
 data Outputs = Outputs {
     oeWrite :: [Event String]
   , oeClose :: [Event ()]
   }
 ```
-and do the combining a function:
-```haskell
-fanIn :: Outputs -> OutputIO
-fanIn (Outputs eWrites eCloses) =
-  let
-    addLine x y = x ++ '\n' : y
-    eCombinedWrites = foldr (unionWith addLine) never eWrites
-    eCombinedCloses = () <$ leftmost eCloses
-  in
-    OutputIO eCombinedWrites eCombinedCloses
-```
+so that I didn't have to think about how write and close events were merged while I was working on various event networks.
 
-It's an easier option for while we're prototyping, although once the dust settles you might want to refactor towards the more fine-grained output type in order to wring out any ambiguity from your event network.
+That made it pretty easy to add / remove / reorder the events as things were changing.
+Once things settled down, I switched to the version that you see above to make things a bit more explicit.
 
 We use these new data structures to simplify things event more:
 ```haskell
 networkDescription'' :: MonadMoment m => Inputs -> m Outputs
-networkDescription'' (Inputs eOpen eMessage eHelp eUnknown eQuit) =
+networkDescription'' (Inputs eOpen (ReadInputs eMessage eHelp eUnknown eQuit)) =
   let
-    eWrites = leftmost [
-        "Hi"           <$  eOpen
-      ,                    eMessage
-      , helpMessage    <$  eHelp
-      , unknownMessage <$> eUnknown
-      , "Bye"          <$  eQuit
-      ]
-    eQuits = [
-        eQuit
-      ]
+    eoWrite =           "Hi" <$  eOpen
+    emWrite =                    eMessage
+    ehWrite =    helpMessage <$  eHelp
+    euWrite = unknownMessage <$> eUnknown
+    eqWrite =          "Bye" <$  eQuit
+    writes  =
+      WriteOutputs eoWrite emWrite ehWrite euWrite eqWrite
   in
-    return $ Outputs eWrites eQuits
+    return $ Outputs writes eQuit
+
 ```
 which can be transformed into what we had before by using the corresponding new functions:
 ```haskell
 networkDescription' :: InputIO -> Moment OutputIO
-networkDescription' i = do 
-  o <- networkDescription'' . fanOut $ i
-  return $ fanIn o
+networkDescription' i = do
+  o <- networkDescription'' . handleIOInput $ i
+  return $ handleIOOutput o
+
 ```
 
 This time we have gone from:
@@ -626,17 +644,22 @@ handleUnknown (UnknownInput eUnknown) =
 
 We can stitch all of these together like so:
 ```haskell
-domainNetworkDescription :: MonadMoment m => Inputs -> m Outputs
-domainNetworkDescription (Inputs eOpen eMessage eHelp eQuit eUnknown) = do
+networkDescription'' :: Inputs -> Moment Outputs
+networkDescription'' (Inputs eOpen (ReadInputs eMessage eHelp eUnknown eQuit)) = do
   OpenOutput eoWrite        <- handleOpen    $ OpenInput eOpen
   MessageOutput emWrite     <- handleMessage $ MessageInput eMessage
   HelpOutput ehWrite        <- handleHelp    $ HelpInput eHelp
   QuitOutput eqWrite eqQuit <- handleQuit    $ QuitInput eQuit
   UnknownOutput euWrite     <- handleUnknown $ UnknownInput eUnknown
 
-  return $ Outputs [eoWrite, emWrite, ehWrite, eqWrite, euWrite] [eqQuit]
+  let
+    writes  =
+      WriteOutputs eoWrite emWrite ehWrite euWrite eqWrite
+
+  return $ Outputs writes eQuit
+
 ```
-and now we're free to tweak the internals of some of these without exposing everything to the body of `domainNetworkDescription.`
+and now we're free to tweak the internals of some of these without exposing everything to the body of `networkDescription''`.
 
 
 This takes us from:
@@ -723,7 +746,7 @@ class MonadMoment m => Testable m where
 
 With some formatting liberties in the output, it behaves admirably when we take it for a spin:
 ```haskell
-> output <- testNetwork pureNetworkDescription [
+> output <- testNetwork networkDescription' [
     Just (IORead "one")
   , Nothing
   , Just (IORead "two")
@@ -733,7 +756,7 @@ With some formatting liberties in the output, it behaves admirably when we take 
 [ Just [IOWrite "one"]
 , Nothing
 , Just [IOWrite "two"]
-, Just [IOWrite "Bye", Close]
+, Just [IOWrite "Bye", IOClose]
 ]
 ```
 
@@ -762,7 +785,7 @@ testNetwork fn =
 
 With that, we can do:
 ```haskell
-> output <- testNetwork domainNetworkDescription [
+> output <- testNetwork networkDescription'' [
     Just Open
   , Just (Message "testing...")
   , Just Quit
@@ -770,7 +793,7 @@ With that, we can do:
 > output
 [ Just [Write "Hi (type /help for instructions)"]
 , Just [Write "testing..."]
-, Just [Write "Bye",OCClose]
+, Just [Write "Bye", Close]
 ]
 ```
 

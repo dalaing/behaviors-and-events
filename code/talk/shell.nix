@@ -13,7 +13,6 @@ let
       mkDerivation = args: super.mkDerivation (args // {
         enableLibraryProfiling = true;
       });
-      reactive-banana = self.callPackage ../reactive-banana/reactive-banana {};
       talk = self.callPackage ./. {};
     };
   }; 
