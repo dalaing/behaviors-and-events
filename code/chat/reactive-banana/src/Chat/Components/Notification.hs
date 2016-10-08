@@ -20,8 +20,8 @@ import qualified Data.Text               as T
 
 import           Reactive.Banana         (Behavior, Event)
 
-import           Chat.Types.Config       (Config (..), NotificationType (..))
-import           Chat.Types.Notification (Notification)
+import           Chat.Types.Config       (Config (..))
+import           Chat.Types.Notification (Notification, NotificationType (..))
 
 data NotifyInput = NotifyInput {
     nibLimit  :: Behavior Int
@@ -34,8 +34,8 @@ data NotifyOutput = NotifyOutput {
   }
 
 keywordFetch :: Config -> Maybe T.Text
-keywordFetch (Config nt)
-  | nt == Batch =
+keywordFetch config
+  | cNotificationType config == Batch =
     Just "fetch"
   | otherwise =
     Nothing
@@ -50,8 +50,8 @@ parseFetch c kw = do
 
 helplineFetch :: Config
               -> Maybe T.Text
-helplineFetch (Config nt) =
-  case nt of
+helplineFetch config =
+  case cNotificationType config of
     Batch ->
       Just "/fetch             - prints the pending notifications"
     _     ->

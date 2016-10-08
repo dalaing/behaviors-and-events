@@ -7,7 +7,8 @@ Portability : non-portable
 -}
 {-# LANGUAGE OverloadedStrings #-}
 module Chat.Types.Name (
-    Name
+    NameType(..)
+  , Name
   , NameError
   , nameErrorText
   , checkName
@@ -17,6 +18,11 @@ module Chat.Types.Name (
 
 import qualified Data.Set      as S (Set, member, notMember)
 import qualified Data.Text     as T
+
+data NameType =
+    Interactive
+  | NonInteractive
+  deriving (Eq, Ord, Show)
 
 type Name = T.Text
 

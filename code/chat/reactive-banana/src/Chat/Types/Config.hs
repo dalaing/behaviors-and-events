@@ -6,16 +6,13 @@ Stability   : experimental
 Portability : non-portable
 -}
 module Chat.Types.Config (
-    NotificationType(..)
-  , Config(..)
+    Config(..)
   ) where
 
--- TODO move this to Chat.Types.Notification
-data NotificationType =
-    Stream
-  | Batch
-  deriving (Eq, Ord, Show)
+import           Chat.Types.Name         (NameType)
+import           Chat.Types.Notification (NotificationType)
 
 data Config = Config {
-    cNotificationType :: NotificationType
+    cNameType         :: NameType
+  , cNotificationType :: NotificationType
   }

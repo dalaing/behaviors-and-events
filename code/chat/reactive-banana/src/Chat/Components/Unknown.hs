@@ -14,6 +14,7 @@ module Chat.Components.Unknown (
   ) where
 
 import           Control.Monad                (guard)
+import           Data.Char                    (isSpace)
 import           Data.Maybe                   (fromMaybe)
 
 import qualified Data.Text                    as T
@@ -40,6 +41,7 @@ parseUnknown :: Config
              -> Maybe T.Text
 parseUnknown c cmd =
   let
+    word = T.takeWhile (not . isSpace) cmd
     keywords =
       fromMaybe [] (pure <$> keywordFetch c) ++
         [ keywordTell
@@ -48,7 +50,7 @@ parseUnknown c cmd =
         , keywordQuit
         ]
   in do
-    guard $ cmd `notElem` keywords
+    guard $ word `notElem` keywords
     return cmd
 
 unknownMessage :: T.Text

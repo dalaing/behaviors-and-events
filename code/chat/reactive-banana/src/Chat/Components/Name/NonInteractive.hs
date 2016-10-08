@@ -9,15 +9,14 @@ module Chat.Components.Name.NonInteractive (
     handleName
   ) where
 
-import           Reactive.Banana         (MonadMoment, split, (<@>))
+import           Reactive.Banana         (Moment, split, (<@>))
 
 import           Chat.Components.Name    (NameInput (..), NameOutput (..))
 import           Chat.Types.Name         (checkNameNotInUse, nameErrorText)
 import           Chat.Types.Notification (Notification (..))
 
-handleName :: MonadMoment m
-           => NameInput
-           -> m NameOutput
+handleName :: NameInput
+           -> Moment NameOutput
 handleName (NameInput bNames _ eRead) = do
 
   let

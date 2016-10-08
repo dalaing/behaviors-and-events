@@ -7,13 +7,19 @@ Portability : non-portable
 -}
 {-# LANGUAGE OverloadedStrings #-}
 module Chat.Types.Notification (
-    Notification(..)
+    NotificationType(..)
+  , Notification(..)
   , notificationText
   ) where
 
 import qualified Data.Text as T
 
 import Chat.Types.Name (Name)
+
+data NotificationType =
+    Stream
+  | Batch
+  deriving (Eq, Ord, Show)
 
 data Notification =
     NJoin Name
@@ -30,8 +36,8 @@ notificationText (NJoin user) =
   T.concat [user, " has joined"]
 notificationText (NMessage user message) =
   T.concat ["<", user, ">: ", message]
-notificationText (NTell userFrom _ message) =
-  T.concat ["*", userFrom, "*: ", message]
+notificationText (NTell userFrom userTo message) =
+  T.concat ["*", userFrom, " -> ", userTo, "*: ", message]
 notificationText (NKick kicker kickee) =
   T.concat [kicker, " has kicked ", kickee]
 notificationText (NQuit user) =

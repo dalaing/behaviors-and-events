@@ -11,49 +11,81 @@ module Chat.Components.Command (
   , handleCommand
   ) where
 
-import qualified Data.Text                    as T
+import qualified Data.Set                            as S
+import qualified Data.Text                           as T
 
-import           Reactive.Banana              (Event, MonadMoment, filterJust,
-                                               split)
+import           Reactive.Banana                     (Behavior, Event,
+                                                      MonadMoment, filterJust,
+                                                      split)
 
-import           Chat.Types.Config            (Config (..))
-import           Chat.Types.Message           (Message, PrivateMessage)
-import           Chat.Types.Name              (Name)
+import           Chat.Types.Config                   (Config (..))
+import           Chat.Types.Message                  (Message, PrivateMessage)
+import           Chat.Types.Name                     (Name)
+import           Chat.Types.Notification             (Notification)
 
-import           Chat.Components.Help         (parseHelp)
-import           Chat.Components.Kick         (parseKick)
-import           Chat.Components.Notification (parseFetch)
-import           Chat.Components.Quit         (parseQuit)
-import           Chat.Components.Tell         (parseTell)
-import           Chat.Components.Unknown      (parseUnknown)
+import           Chat.Components.Disconnected        (DisconnectedInput (..),
+                                                      DisconnectedOutput (..),
+                                                      handleDisconnected)
+import           Chat.Components.Help                (HelpInput (..),
+                                                      HelpOutput (..),
+                                                      handleHelp, parseHelp)
+import           Chat.Components.Kick                (KickInput (..),
+                                                      KickOutput (..),
+                                                      handleKick, parseKick)
+import           Chat.Components.Message             (MessageInput (..),
+                                                      MessageOutput (..),
+                                                      handleMessage)
+import           Chat.Components.Notification        (parseFetch)
+import           Chat.Components.Quit                (QuitInput (..),
+                                                      QuitOutput (..),
+                                                      handleQuit, parseQuit)
+import           Chat.Components.Tell                (TellInput (..),
+                                                      TellOutput (..),
+                                                      handleTell, parseTell)
+import           Chat.Components.Unknown             (UnknownInput (..),
+                                                      UnknownOutput (..),
+                                                      handleUnknown,
+                                                      parseUnknown)
+import           Util                                (leftmost)
 
 data CommandInput = CommandInput {
-    cieRead :: Event T.Text
+    cibNames     :: Behavior (S.Set Name)
+  , cibName      :: Behavior Name
+  , cieRead      :: Event T.Text
+  , cieHasClosed :: Event ()
+  }
+
+data FanCommand = FanCommand {
+    fceMessage :: Event Message
+  , fceTell    :: Event PrivateMessage
+  , fceKick    :: Event Name
+  , fceFetch   :: Event ()
+  , fceHelp    :: Event ()
+  , fceQuit    :: Event ()
+  , fceUnknown :: Event T.Text
   }
 
 data CommandOutput = CommandOutput {
-    coeMessage :: Event Message
-  , coeTell    :: Event PrivateMessage
-  , coeKick    :: Event Name
-  , coeFetch   :: Event ()
-  , coeHelp    :: Event ()
-  , coeQuit    :: Event ()
-  , coeUnknown :: Event T.Text
+    coeKick   :: Event Name
+  , coeFetch  :: Event ()
+  , coeNotify :: Event Notification
+  , coeWrite  :: Event T.Text
+  , coeClose  :: Event ()
   }
 
 splitCommand :: T.Text
              -> Either T.Text T.Text
 splitCommand t
-  | T.head t == '/' =
+  | (not . T.null $ t) && T.head t == '/' =
     Right $ T.tail t
   | otherwise =
     Left t
 
-handleCommand :: MonadMoment m
+fanCommand :: MonadMoment m
               => Config
-              -> CommandInput
-              -> m CommandOutput
-handleCommand config (CommandInput eRead) =
+              -> Event T.Text
+              -> m FanCommand
+fanCommand config eRead =
   let
     (eMessage, eCommand) =
       split $ splitCommand <$> eRead
@@ -71,4 +103,40 @@ handleCommand config (CommandInput eRead) =
     eUnknown =
       filterJust $ parseUnknown config <$> eCommand
   in
-    return $ CommandOutput eMessage eTell eKick eFetch eHelp eQuit eUnknown
+    return $ FanCommand eMessage eTell eKick eFetch eHelp eQuit eUnknown
+
+handleCommand :: MonadMoment m
+              => Config
+              -> CommandInput
+              -> m CommandOutput
+handleCommand config (CommandInput bNames bName eRead eClosed) = do
+  FanCommand eMessage eTell eKick eFetch eHelp eQuit eUnknown <- fanCommand config eRead
+  MessageOutput emNotify <- handleMessage $ MessageInput bName eMessage
+  TellOutput etNotify etWrite <- handleTell $ TellInput bNames bName eTell
+  KickOutput eKickValid ekNotify ekWrite <- handleKick $ KickInput bNames bName eKick
+  HelpOutput ehWrite <- handleHelp config $ HelpInput eHelp
+  QuitOutput eqNotify eqClose <- handleQuit $ QuitInput bName eQuit
+  DisconnectedOutput edNotify edClose <- handleDisconnected $ DisconnectedInput bName eClosed
+  UnknownOutput euWrite <- handleUnknown $ UnknownInput eUnknown
+  let
+    eNotify =
+      leftmost [
+        emNotify
+      , etNotify
+      , ekNotify
+      , eqNotify
+      , edNotify
+      ]
+    eWrite =
+      leftmost [
+        etWrite
+      , ekWrite
+      , ehWrite
+      , euWrite
+      ]
+    eClose =
+      leftmost [
+        eqClose
+      , edClose
+      ]
+  return $ CommandOutput eKickValid eFetch eNotify eWrite eClose
