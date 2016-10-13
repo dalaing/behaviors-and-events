@@ -45,6 +45,7 @@ library
                      , Socket.InputSources
                      , Socket.Network
                      , Socket.EventLoop
+                     , Test
                      , Util
                      , Util.Switch
                      , Util.IO
