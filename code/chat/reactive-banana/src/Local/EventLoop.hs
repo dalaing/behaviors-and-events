@@ -9,21 +9,22 @@ module Local.EventLoop (
     eventLoop
   ) where
 
-import           Control.Monad            (unless)
-import           Data.IORef               (readIORef)
+import           Control.Monad             (unless)
+import           Data.IORef                (readIORef)
 
-import           Control.Monad.IO.Class   (liftIO)
+import           Control.Monad.IO.Class    (liftIO)
 
-import qualified Data.Text                as T
+import qualified Data.Text                 as T
 
 import           System.Console.Haskeline
 
-import           Local.InputSources       (InputSources (..))
-import           Util.IO                  (EventSource (..))
+-- import           Local.InputSources       (InputSources (..))
+import           Chat.Network.Client.Types (InputSources (..))
+import           Util.IO                   (EventSource (..))
 
-eventLoop :: InputSources -> IO ()
+eventLoop :: EventSource e m => InputSources e -> IO ()
 eventLoop (InputSources esOpen esRead esClosed refClose) = do
-    fire esOpen ()
+    fireEvent esOpen ()
     runInputT defaultSettings loop
   where
     loop = do
@@ -31,7 +32,7 @@ eventLoop (InputSources esOpen esRead esClosed refClose) = do
         handle (\Interrupt -> return Nothing) .
         withInterrupt $
         getInputLine "> "
-      liftIO $ maybe (fire esClosed ()) (fire esRead . T.pack) l
+      liftIO $ maybe (fireEvent esClosed ()) (fireEvent esRead . T.pack) l
 
       c <- liftIO $ readIORef refClose
       unless c loop

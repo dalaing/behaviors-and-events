@@ -12,12 +12,14 @@ module Local (
 import           Reactive.Banana.Frameworks (actuate, compile)
 
 import           Local.EventLoop            (eventLoop)
-import           Local.InputSources         (mkInputSources)
+-- import           Local.InputSources         (mkInputSources)
+import           Chat.Network.Client.Types  (InputSources, mkInputSources)
 import           Local.Network              (network)
+import           Util.IO                    (ExternalEventSource)
 
 goLocal :: IO ()
 goLocal = do
-  io <- mkInputSources
+  io <- mkInputSources :: IO (InputSources ExternalEventSource)
   nd <- compile $ network io
   actuate nd
   eventLoop io

@@ -5,9 +5,12 @@ Maintainer  : dave.laing.80@gmail.com
 Stability   : experimental
 Portability : non-portable
 -}
+{-# LANGUAGE OverloadedStrings #-}
 module Chat.Components.Notification.Stream (
     handleNotify
   ) where
+
+import qualified Data.Text                    as T
 
 import           Reactive.Banana              (MonadMoment)
 
@@ -19,4 +22,4 @@ handleNotify :: MonadMoment m
              => NotifyInput
              -> m NotifyOutput
 handleNotify (NotifyInput _ _ eNotify) =
-  return . NotifyOutput $ notificationText <$> eNotify
+  return . NotifyOutput $ (T.intercalate "\n" . fmap notificationText) <$> eNotify

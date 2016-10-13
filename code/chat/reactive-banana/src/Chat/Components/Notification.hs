@@ -26,7 +26,7 @@ import           Chat.Types.Notification (Notification, NotificationType (..))
 data NotifyInput = NotifyInput {
     nibLimit  :: Behavior Int
   , nieFetch  :: Event ()
-  , nieNotify :: Event Notification
+  , nieNotify :: Event [Notification]
   }
 
 data NotifyOutput = NotifyOutput {

@@ -14,13 +14,13 @@ import           Data.IORef (IORef, newIORef)
 
 import qualified Data.Text  as T
 
-import           Util.IO    (EventSource, mkEventSource)
+import           Util.IO    (EventSource(..), ExternalEventSource)
 
 data InputSources =
   InputSources {
-    ioHasOpened :: EventSource ()
-  , ioRead      :: EventSource T.Text
-  , ioHasClosed :: EventSource ()
+    ioHasOpened :: ExternalEventSource ()
+  , ioRead      :: ExternalEventSource T.Text
+  , ioHasClosed :: ExternalEventSource ()
   , ioClosed    :: IORef Bool
   }
 

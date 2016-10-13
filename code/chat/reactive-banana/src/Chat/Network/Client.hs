@@ -1,0 +1,137 @@
+{-|
+Copyright   : (c) Dave Laing, 2016
+License     : BSD3
+Maintainer  : dave.laing.80@gmail.com
+Stability   : experimental
+Portability : non-portable
+-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecursiveDo       #-}
+module Chat.Network.Client (
+    ClientInput(..)
+  , ClientOutput(..)
+  , clientNetwork
+  ) where
+
+import           Control.Monad                       (join)
+
+import qualified Data.Map                            as M
+import qualified Data.Set                            as S
+import qualified Data.Text                           as T
+
+import           Reactive.Banana                     (Behavior, Event, Moment,
+                                                      never, stepper, filterE)
+
+import           Chat.Components.Command             (CommandInput (..),
+                                                      CommandOutput (..),
+                                                      handleCommand)
+import           Chat.Components.Name                (NameInput (..),
+                                                      NameOutput (..))
+import qualified Chat.Components.Name.Interactive    as NaI (handleName)
+import qualified Chat.Components.Name.NonInteractive as NaNI (handleName)
+import           Chat.Components.Notification        (NotifyInput (..),
+                                                      NotifyOutput (..))
+import qualified Chat.Components.Notification.Batch  as NoB (handleNotify)
+import qualified Chat.Components.Notification.Stream as NoS (handleNotify)
+import           Chat.Network.Client.Types           (InputIO (..),
+                                                      OutputIO (..))
+import           Chat.Types.Config                   (Config (..))
+import           Chat.Types.Name                     (Name, NameType (..))
+import           Chat.Types.Notification             (Notification(..),
+                                                      NotificationType (..))
+import           Util                                (leftmost)
+import           Util.Switch                         (Switch (..), switchAp)
+
+data WrappedOutput =
+  WrappedOutput {
+    woeName   :: Event Name
+  , woeFetch  :: Event ()
+  , woeKick   :: Event Int
+  , woeNotify :: Event Notification
+  , woeWrite  :: Event T.Text
+  , woeClose  :: Event ()
+  }
+
+instance Switch WrappedOutput where
+  switch e ee =
+    WrappedOutput <$>
+      switchAp woeName e ee <*>
+      switchAp woeFetch e ee <*>
+      switchAp woeKick e ee <*>
+      switchAp woeNotify e ee <*>
+      switchAp woeWrite e ee <*>
+      switchAp woeClose e ee
+
+wrapName :: NameOutput -> WrappedOutput
+wrapName (NameOutput eName eNotify eWrite) =
+  WrappedOutput eName never never eNotify eWrite never
+
+wrapCommand :: CommandOutput -> WrappedOutput
+wrapCommand (CommandOutput eFetch eKick eNotify eWrite eClose) =
+  WrappedOutput never eFetch eKick eNotify eWrite eClose
+
+data ClientInput =
+  ClientInput {
+    ciId         :: Int
+  , cibLimit     :: Behavior Int
+  , cibNameIdMap :: Behavior (M.Map Name Int)
+  , cieNotifyIn  :: Event [Notification]
+  , cieKickIn    :: Event (S.Set Int)
+  , ciIO         :: InputIO
+  }
+
+data ClientOutput =
+  ClientOutput {
+    cobName      :: Behavior (Maybe Name)
+  -- this can probably drop the Maybe
+  , coeName      :: Event (Maybe Name)
+  , coeNotifyOut :: Event Notification
+  , coeKick      :: Event Int
+  , coIO         :: OutputIO
+  }
+
+handleName :: Config -> NameInput -> Moment NameOutput
+handleName config =
+  case cNameType config of
+    Interactive    -> NaI.handleName
+    NonInteractive -> NaNI.handleName
+
+handleNotify :: Config -> NotifyInput -> Moment NotifyOutput
+handleNotify config =
+  case cNotificationType config of
+    Stream -> NoS.handleNotify
+    Batch  -> NoB.handleNotify
+
+clientNetwork :: Config -> ClientInput -> Moment ClientOutput
+clientNetwork config (ClientInput cId bLimit bNameIdMap eNotifyIn eKickIn (InputIO eOpened eRead eClosed)) = mdo
+  let
+    bNames = M.keysSet <$> bNameIdMap
+    nameOut = fmap wrapName . handleName config $ NameInput bNames eOpened eRead
+    commandOut = fmap wrapCommand . handleCommand config $ CommandInput cId bNameIdMap bName' eRead eClosed
+
+  wo <- join $ switch nameOut (commandOut <$ eName')
+
+  let
+    eName' = woeName wo
+  bName' <- stepper "" eName'
+  let
+    eName = fmap Just eName'
+  bName <- stepper Nothing eName
+
+  let
+    eFetch = woeFetch wo
+    eKickOut = woeKick wo
+    eNotifyOut = woeNotify wo
+
+  -- we kind of want to switchPromptly on eName
+  eNotifyIn' <- switch ((pure . NJoin) <$> eName') . leftmost $ [
+      eNotifyIn <$ eName
+    , never <$ eClose
+    ]
+  NotifyOutput enWrite <- handleNotify config $ NotifyInput bLimit eFetch eNotifyIn'
+
+  let
+    eWrite = leftmost [woeWrite wo, enWrite]
+    eClose = leftmost [woeClose wo, () <$ filterE (S.member cId) eKickIn]
+
+  return $ ClientOutput bName eName eNotifyOut eKickOut (OutputIO eWrite eClose)

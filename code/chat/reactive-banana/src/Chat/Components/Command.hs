@@ -12,11 +12,12 @@ module Chat.Components.Command (
   ) where
 
 import qualified Data.Set                            as S
+import qualified Data.Map                            as M
 import qualified Data.Text                           as T
 
 import           Reactive.Banana                     (Behavior, Event,
                                                       MonadMoment, filterJust,
-                                                      split)
+                                                      split, (<@>))
 
 import           Chat.Types.Config                   (Config (..))
 import           Chat.Types.Message                  (Message, PrivateMessage)
@@ -49,7 +50,8 @@ import           Chat.Components.Unknown             (UnknownInput (..),
 import           Util                                (leftmost)
 
 data CommandInput = CommandInput {
-    cibNames     :: Behavior (S.Set Name)
+    ciId         :: Int
+  , cibNameIdMap :: Behavior (M.Map Name Int)
   , cibName      :: Behavior Name
   , cieRead      :: Event T.Text
   , cieHasClosed :: Event ()
@@ -66,8 +68,8 @@ data FanCommand = FanCommand {
   }
 
 data CommandOutput = CommandOutput {
-    coeKick   :: Event Name
-  , coeFetch  :: Event ()
+    coeFetch  :: Event ()
+  , coeKick   :: Event Int
   , coeNotify :: Event Notification
   , coeWrite  :: Event T.Text
   , coeClose  :: Event ()
@@ -109,16 +111,22 @@ handleCommand :: MonadMoment m
               => Config
               -> CommandInput
               -> m CommandOutput
-handleCommand config (CommandInput bNames bName eRead eClosed) = do
+handleCommand config (CommandInput cId bNameIdMap bName eRead eClosed) = do
+  let
+    bNames = M.keysSet <$> bNameIdMap
+
   FanCommand eMessage eTell eKick eFetch eHelp eQuit eUnknown <- fanCommand config eRead
   MessageOutput emNotify <- handleMessage $ MessageInput bName eMessage
   TellOutput etNotify etWrite <- handleTell $ TellInput bNames bName eTell
-  KickOutput eKickValid ekNotify ekWrite <- handleKick $ KickInput bNames bName eKick
+  KickOutput eKickName ekNotify ekWrite <- handleKick $ KickInput bNames bName eKick
   HelpOutput ehWrite <- handleHelp config $ HelpInput eHelp
   QuitOutput eqNotify eqClose <- handleQuit $ QuitInput bName eQuit
   DisconnectedOutput edNotify edClose <- handleDisconnected $ DisconnectedInput bName eClosed
   UnknownOutput euWrite <- handleUnknown $ UnknownInput eUnknown
+
   let
+    eKickId =
+      filterJust $ flip M.lookup <$> bNameIdMap <@> eKickName
     eNotify =
       leftmost [
         emNotify
@@ -136,7 +144,8 @@ handleCommand config (CommandInput bNames bName eRead eClosed) = do
       ]
     eClose =
       leftmost [
-        eqClose
-      , edClose
+        () <$ eqClose
+      , () <$ edClose
       ]
-  return $ CommandOutput eKickValid eFetch eNotify eWrite eClose
+
+  return $ CommandOutput eFetch eKickId eNotify eWrite eClose

@@ -51,7 +51,7 @@ parseKick cmd = do
     (kw, rest) = T.splitAt (T.length keywordKick) cmd
   guard $ kw == keywordKick
   (h, t) <- T.uncons rest
-  guard $ h == ' '
+  guard $ h == ' ' && (not . T.null $ t)
   return t
 
 helplineKick :: T.Text
@@ -74,6 +74,6 @@ handleKick :: MonadMoment m
 handleKick (KickInput bNames bName eKick) =
   let
     (eFeedback, eKickValid) = split $ checkKickName <$> bNames <*> bName <@> eKick
-    eNotify = NKick <$> bName <@> eKick
+    eNotify = NKick <$> bName <@> eKickValid
   in
     return $ KickOutput eKickValid eNotify eFeedback

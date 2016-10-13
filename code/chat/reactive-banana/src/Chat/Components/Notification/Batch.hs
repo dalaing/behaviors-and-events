@@ -22,7 +22,7 @@ handleNotify :: MonadMoment m
 handleNotify (NotifyInput bLimit eFetch eNotify) = do
 
   bMessages <- accumB [] . unions $ [
-      (\n x -> take n . (x :)) <$> bLimit <@> eNotify
+      (\n x -> take n . (x ++)) <$> bLimit <@> eNotify
     , const [] <$ eFetch
     ]
 
