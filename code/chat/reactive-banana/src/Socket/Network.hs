@@ -6,18 +6,17 @@ Stability   : experimental
 Portability : non-portable
 -}
 {-# LANGUAGE RecursiveDo #-}
-module Socket.Network (
+module Socket.Network where {-(
+
     network
   , network2
-  ) where
+  ) where -}
 
-import           Control.Monad                (unless, void)
-import           Data.IORef                   (readIORef, writeIORef)
 import           Data.List                    (group, sortOn)
 import           Data.Maybe                   (mapMaybe)
 import           Data.Traversable             (traverse)
 import           Data.Tuple                   (swap)
-import           System.IO                    (Handle, hClose, hPutStrLn)
+import           System.IO                    (Handle, hPutStrLn)
 
 import           Control.Concurrent.STM       (atomically)
 import           Control.Concurrent.STM.TChan (writeTChan)
@@ -26,17 +25,18 @@ import qualified Data.Map                     as M
 import qualified Data.Set                     as S
 import qualified Data.Text                    as T
 
-import           Reactive.Banana              (Event, Moment, MonadMoment (..),
-                                               accumB, accumE, filterJust,
-                                               never, observeE, switchB,
-                                               switchE, unionWith, unions,
-                                               (<@>))
-import           Reactive.Banana.Frameworks   (MomentIO, execute, liftIOLater, liftIO,
+import           Reactive.Banana              (Event, MonadMoment (..), accumB,
+                                               accumE, filterJust, never,
+                                               switchB, switchE, unionWith,
+                                               unions, (<@>))
+import           Reactive.Banana.Frameworks   (MomentIO, execute, liftIOLater,
                                                reactimate)
 
 import           Chat.Network.Client          (ClientInput (..),
                                                ClientOutput (..), clientNetwork)
-import           Chat.Network.Client.Types    (InputIO (..), OutputIO (..))
+import           Chat.Network.Server          (ServerOutput (..),
+                                               serverNetworkFromAddEvent)
+import           Chat.Network.Types           (InputIO (..), OutputIO (..))
 import           Chat.Types.Config            (Config (..))
 import           Chat.Types.Name              (NameType (..))
 import           Chat.Types.Notification      (NotificationType (..))
@@ -44,6 +44,7 @@ import           Socket.EventLoop             (clientEventLoop)
 import           Socket.InputSources          (ClientInputSources (..),
                                                ServerInputSources (..),
                                                mkClientInputSources)
+import           Util                         (bulkRemove)
 import           Util.IO                      (EventSource (..))
 import           Util.Switch                  (Switch (..))
 
@@ -59,7 +60,7 @@ handleOutput h (ClientInputSources _ _ _ refClose) (OutputIO eWrite eClose) = do
     reactimate $ hPutStrLn h . T.unpack <$> eWrite
     reactimate $ closeOnce <$ eClose
   where
-    closeOnce = do
+    closeOnce =
       atomically . writeTChan refClose $ ()
 
 mkClient :: Config -> ClientInput -> Handle -> MomentIO ClientOutput
@@ -78,6 +79,14 @@ mkClient config ci handle = do
 
   return co
 
+-- Issues
+-- - not filtering the tell messages yet
+-- - kick with no user name is accepted
+-- - we should inform the client when the server goes down
+--   - at the moment we can kill the server and it seems to keep
+--     rolling on, which is worth looking into...
+--   - need to generally clean up in that case as well
+
 network :: ServerInputSources -> MomentIO ()
 network (ServerInputSources esHandle) = mdo
   let
@@ -85,39 +94,11 @@ network (ServerInputSources esHandle) = mdo
     bLimit = pure 100
     emptyInputIO = InputIO never never never
 
-  -- build a map of ids to InputIOs
-  -- - this is where we kick over the client event loop in the socket version
-  -- build a map of ids to (OutputIO -> MomentIO ())
-  -- - possibly to MomentIO (Map Int a), for use with the testing version
-
-  -- pure bit:
-  -- map from (map id InputIO) to (map id OutputIO)
-  --  - possibly with a traverse
-  --  - need to handle the case where the map is changing
-  -- also need to provide an event with a set of ids to remove
-  --  - so that we can clean up the input / output maps
-  --  - there might be a better way to manage that
-
-  -- make it all happen:
-  -- void . sequence $ intersectWith ($) (map id (OutputIO -> MomentIO ())) (map id OutputIO)
-
-
   eHandle <- registerEvent esHandle
 
   bId <- accumB 0 ((+ 1) <$ eHandle)
 
   eOut <- execute $ (\i h -> mkClient config (ClientInput i bLimit bNameIdMap eNotifyIn eKickIn emptyInputIO) h) <$> bId <@> eHandle
-
-  -- Issues
-  -- - not filtering the tell messages yet
-  -- - kick with no user name is accepted
-  -- - we should inform the client when the server goes down
-  --   - at the moment we can kill the server and it seems to keep
-  --     rolling on, which is worth looking into...
-  --   - need to generally clean up in that case as well
-
-  let
-    bulkRemove s m = S.foldr M.delete m s
 
   eClientMap <- accumE M.empty . unions $ [
       M.insert <$> bId <@> eOut
@@ -149,60 +130,7 @@ network (ServerInputSources esHandle) = mdo
 
   return ()
 
-data PureIn =
-  PureIn {
-    pieAdd :: Event (Int, InputIO)
-
-  }
-
-data PureOut =
-  PureOut {
-    poeClients :: Event (M.Map Int OutputIO)
-  , poeClose   :: Event (S.Set Int)
-  }
-
--- should we take a map in?
--- that would possibly make the testing easier...
-pureNetwork :: PureIn -> Moment PureOut
-pureNetwork (PureIn eAdd) = mdo
-  let
-    config = Config Interactive Stream
-    bLimit = pure 100
-
-    add i input = fmap (\x -> (i, x)) . clientNetwork config $ ClientInput i bLimit bNameIdMap eNotifyIn eKickIn input
-    eOut = observeE $ uncurry add <$> eAdd
-
-    bulkRemove s m = S.foldr M.delete m s
-
-  eClientMap <- accumE M.empty . unions $ [
-      uncurry M.insert <$> eOut
-    , bulkRemove <$> eClose
-    ]
-
-  bIdNameMap <- switchB (pure M.empty) . fmap (traverse cobName) $ eClientMap
-  let
-    flipper =
-      M.fromList . fmap head . group . sortOn fst . fmap swap . mapMaybe sequence . M.toList
-    bNameIdMap = flipper <$> bIdNameMap
-
-  let
-    eeNotifications = (foldr (unionWith (++)) never . fmap (fmap pure . coeNotifyOut) . M.elems) <$> eClientMap
-  eNotifyIn <- switchE eeNotifications
-
-  let
-    eeKicks = (foldr (unionWith S.union) never . fmap (fmap S.singleton . coeKick) . M.elems) <$> eClientMap
-  eKickIn <- switchE eeKicks
-
-  let
-    eeCloses = (foldr (unionWith S.union) never . M.mapWithKey (\i v -> S.singleton i <$ (oeClose . coIO $ v))) <$> eClientMap
-  eClose <- switchE eeCloses
-
-  let
-    eOutMap = fmap coIO <$> eClientMap
-
-  return $ PureOut eOutMap eClose
-
-mkClient2 :: Event (M.Map Int OutputIO) -> Int -> Handle -> MomentIO ((Int, InputIO))
+mkClient2 :: Event (M.Map Int OutputIO) -> Int -> Handle -> MomentIO (Int, InputIO)
 mkClient2 mOut i handle = do
   cis <- mkClientInputSources
   input <- handleInput cis
@@ -231,10 +159,8 @@ network2 :: ServerInputSources -> MomentIO ()
 network2 (ServerInputSources esHandle) = mdo
   eHandle <- registerEvent esHandle
   bId <- accumB 0 ((+ 1) <$ eHandle)
-
   eI <- execute $ mkClient2 eOMap <$> bId <@> eHandle
-  PureOut eOMap eClose <- liftMoment . pureNetwork $ PureIn eI
-
+  ServerOutput eOMap _ <- liftMoment . serverNetworkFromAddEvent $ eI
   return ()
 
 mkClient3 :: Handle -> OutputIO -> MomentIO InputIO
@@ -245,52 +171,14 @@ mkClient3 handle o = do
   liftIOLater $ clientEventLoop handle cis
   return input
 
-{-
-For testing, we might want a bit more separation
-- create a map from id to things that handle io
-- have them fire event (id, value) for the various values we care about
-- have another map with the pure state-per-id, and route the events into the map based on the id
-- hopefully that means we can test the central bit with (id, value) pairs as inputs
+network3 :: ServerInputSources -> MomentIO ()
+network3 (ServerInputSources esHandle) = mdo
+  eHandle <- registerEvent esHandle
+  bId <- accumB 0 ((+ 1) <$ eHandle)
 
-- modelling the connection will be interesting
+  eI <- execute $ mkClient2 eOMap <$> bId <@> eHandle
 
-Probably a good idea to get the above going first though.
+  ServerOutput eOMap _ <- liftMoment . serverNetworkFromAddEvent $ eI
 
-Something like this also has a better chance of generalizing to the web based form.
--}
+  return ()
 
-{-
-We want something we can reuse in at least 3 contexts:
-- sockets
-- http
-- testing
-
-Input events are (Int, InputCmd) like
-In
-  (1, Open)
-  (1, Read "hi")
-  (1, Close)
-Out
-  (2, Write "A has joined)
-  (3, Write "A has joined)
-  (2, Write "<A> hi)
-  (3, Write "<A> hi)
-  (2, Write "A has quit)
-  (3, Write "A has quit)
-
-This is not the normal open - this is after the name phase
-It is more like
-  (1, Create "A")
-
-This re-introduces the problem of using eName to do a switch
-while also using it as an open event for the second phase.
-
-Hmm
-
-(1, Open)
-  (1, Write "What is your name?")
-(1, Read "A")
-  (1, Write "A joined")
-  (2, Write "A joined")
-  (3, Write "A joined")
--}

@@ -22,7 +22,7 @@ import           Reactive.Banana.Frameworks          (MomentIO, reactimate)
 import           Chat.Network.Client                 (ClientInput (..),
                                                       ClientOutput (..),
                                                       clientNetwork)
-import           Chat.Network.Client.Types           (InputIO (..),
+import           Chat.Network.Types                  (InputIO (..),
                                                       OutputIO (..),
                                                       InputSources(..))
 import           Chat.Types.Config                   (Config (..))

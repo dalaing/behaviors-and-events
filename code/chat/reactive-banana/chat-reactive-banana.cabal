@@ -35,7 +35,8 @@ library
                      , Chat.Components.Disconnected
                      , Chat.Components.Command
                      , Chat.Network.Client
-                     , Chat.Network.Client.Types
+                     , Chat.Network.Server
+                     , Chat.Network.Types
                      , Local
                      , Local.InputSources
                      , Local.Network
@@ -53,12 +54,22 @@ library
                      , reactive-banana >= 1.1 && < 1.2
                      , containers >= 0.5 && < 0.6
                      , text >= 1.2 && < 1.3
-                     , haskeline >= 0.7 && < 0.8 
-                     , network >= 2.6 && < 2.7
                      , stm >= 2.4 && < 2.5
+                     -- for local
+                     , haskeline >= 0.7 && < 0.8 
+                     -- for socket
+                     , network >= 2.6 && < 2.7
                      , async >= 2.1 && < 2.2
-                     -- , profunctors >= 5.2 && < 5.3
+                     -- for http
+                     , servant
+                     , servant-snap
+                     , snap-core
+                     , snap-server
+                     , snap
+                     , aeson >= 0.11 && < 0.12
+                     , lens
                      -- , lens >= 4.13 && < 4.14
+                     -- , profunctors >= 5.2 && < 5.3
                      -- , safe >= 0.3 && < 0.4
                      -- , mtl >= 2.2 && < 2.3
   hs-source-dirs:      src

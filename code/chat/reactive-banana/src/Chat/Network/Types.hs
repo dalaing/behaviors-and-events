@@ -6,7 +6,7 @@ Stability   : experimental
 Portability : non-portable
 -}
 {-# LANGUAGE FlexibleContexts #-}
-module Chat.Network.Client.Types (
+module Chat.Network.Types (
     InputIO(..)
   , OutputIO(..)
   , InputSources(..)

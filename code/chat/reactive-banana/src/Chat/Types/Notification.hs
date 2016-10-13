@@ -6,13 +6,18 @@ Stability   : experimental
 Portability : non-portable
 -}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
 module Chat.Types.Notification (
     NotificationType(..)
   , Notification(..)
   , notificationText
   ) where
 
+import GHC.Generics (Generic)
+
 import qualified Data.Text as T
+
+import Data.Aeson (FromJSON, ToJSON)
 
 import Chat.Types.Name (Name)
 
@@ -28,7 +33,10 @@ data Notification =
   | NKick Name Name
   | NQuit Name
   | NDisconnected Name
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic)
+
+instance FromJSON Notification
+instance ToJSON Notification
 
 notificationText :: Notification
                  -> T.Text

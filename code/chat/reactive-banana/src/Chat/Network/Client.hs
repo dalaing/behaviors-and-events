@@ -20,7 +20,7 @@ import qualified Data.Set                            as S
 import qualified Data.Text                           as T
 
 import           Reactive.Banana                     (Behavior, Event, Moment,
-                                                      never, stepper, filterE)
+                                                      filterE, never, stepper)
 
 import           Chat.Components.Command             (CommandInput (..),
                                                       CommandOutput (..),
@@ -33,11 +33,11 @@ import           Chat.Components.Notification        (NotifyInput (..),
                                                       NotifyOutput (..))
 import qualified Chat.Components.Notification.Batch  as NoB (handleNotify)
 import qualified Chat.Components.Notification.Stream as NoS (handleNotify)
-import           Chat.Network.Client.Types           (InputIO (..),
+import           Chat.Network.Types                  (InputIO (..),
                                                       OutputIO (..))
 import           Chat.Types.Config                   (Config (..))
 import           Chat.Types.Name                     (Name, NameType (..))
-import           Chat.Types.Notification             (Notification(..),
+import           Chat.Types.Notification             (Notification (..),
                                                       NotificationType (..))
 import           Util                                (leftmost)
 import           Util.Switch                         (Switch (..), switchAp)

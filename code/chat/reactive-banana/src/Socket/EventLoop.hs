@@ -13,8 +13,7 @@ module Socket.EventLoop (
 import           Control.Concurrent           (forkFinally)
 import           Control.Exception            (mask, try)
 import           Control.Exception.Base       (SomeException (..))
-import           Control.Monad                (forever, unless, void)
-import           Data.IORef                   (readIORef)
+import           Control.Monad                (forever, void)
 import           System.IO                    (BufferMode (..), Handle,
                                                hGetLine, hSetBuffering,
                                                hSetNewlineMode,

@@ -18,8 +18,7 @@ import qualified Data.Text                 as T
 
 import           System.Console.Haskeline
 
--- import           Local.InputSources       (InputSources (..))
-import           Chat.Network.Client.Types (InputSources (..))
+import           Chat.Network.Types        (InputSources(..))
 import           Util.IO                   (EventSource (..))
 
 eventLoop :: EventSource e m => InputSources e -> IO ()
