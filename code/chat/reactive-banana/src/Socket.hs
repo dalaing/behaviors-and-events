@@ -13,11 +13,11 @@ import           Reactive.Banana.Frameworks (actuate, compile)
 
 import           Socket.EventLoop            (serverEventLoop)
 import           Socket.InputSources         (mkServerInputSources)
-import           Socket.Network              (network)
+import           Socket.Network              (network, network2)
 
 goSocket :: Int -> IO ()
 goSocket port = do
   io <- mkServerInputSources
-  nd <- compile $ network io
+  nd <- compile $ network2 io
   actuate nd
   serverEventLoop port io

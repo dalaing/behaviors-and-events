@@ -20,6 +20,7 @@ import qualified Data.Text                  as T
 import           Reactive.Banana            (Event)
 
 import           Util.IO                    (EventSource (..))
+import Util.Switch (Switch(..), switchAp)
 
 data InputIO = InputIO {
     ieOpen  :: Event ()
@@ -27,10 +28,23 @@ data InputIO = InputIO {
   , ieClose :: Event ()
   }
 
+instance Switch InputIO where
+  switch e ee =
+    InputIO <$>
+      switchAp ieOpen e ee <*>
+      switchAp ieRead e ee <*>
+      switchAp ieClose e ee
+
 data OutputIO = OutputIO {
     oeWrite :: Event T.Text
   , oeClose :: Event ()
   }
+
+instance Switch OutputIO where
+  switch e ee =
+    OutputIO <$>
+      switchAp oeWrite e ee <*>
+      switchAp oeClose e ee
 
 data InputSources e =
   InputSources {
