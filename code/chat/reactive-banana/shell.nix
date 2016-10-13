@@ -32,6 +32,7 @@ let
   modifiedHaskellPackages = haskellPackagesWithHoogle.override {
     overrides = self: super: {
       # Add various dependencies here
+      heist = lib.dontCheck super.heist;
     };
   }; 
 

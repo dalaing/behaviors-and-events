@@ -45,6 +45,9 @@ library
                      , Socket.InputSources
                      , Socket.Network
                      , Socket.EventLoop
+                     , Http
+                     , Http.EventLoop
+                     , Http.API
                      , Test
                      , Util
                      , Util.Switch
