@@ -7,10 +7,10 @@ Portability : non-portable
 -}
 {-# LANGUAGE FlexibleContexts #-}
 module Chat.Network.Types (
-    InputIO(..)
-  , OutputIO(..)
-  , InputSources(..)
-  , mkInputSources
+    LineInput(..)
+  , LineOutput(..)
+  , LineInputSources(..)
+  , mkLineInputSources
   ) where
 
 import Data.IORef (IORef, newIORef)
@@ -20,45 +20,45 @@ import qualified Data.Text                  as T
 import           Reactive.Banana            (Event)
 
 import           Util.IO                    (EventSource (..))
-import Util.Switch (Switch(..), switchAp)
+import           Util.Switch (Switch(..), switchAp)
 
-data InputIO = InputIO {
-    ieOpen  :: Event ()
-  , ieRead  :: Event T.Text
-  , ieClose :: Event ()
+data LineInput = LineInput {
+    lieOpen  :: Event ()
+  , lieRead  :: Event T.Text
+  , lieClose :: Event ()
   }
 
-instance Switch InputIO where
+instance Switch LineInput where
   switch e ee =
-    InputIO <$>
-      switchAp ieOpen e ee <*>
-      switchAp ieRead e ee <*>
-      switchAp ieClose e ee
+    LineInput <$>
+      switchAp lieOpen e ee <*>
+      switchAp lieRead e ee <*>
+      switchAp lieClose e ee
 
-data OutputIO = OutputIO {
-    oeWrite :: Event T.Text
-  , oeClose :: Event ()
+data LineOutput = LineOutput {
+    loeWrite :: Event T.Text
+  , loeClose :: Event ()
   }
 
-instance Switch OutputIO where
+instance Switch LineOutput where
   switch e ee =
-    OutputIO <$>
-      switchAp oeWrite e ee <*>
-      switchAp oeClose e ee
+    LineOutput <$>
+      switchAp loeWrite e ee <*>
+      switchAp loeClose e ee
 
-data InputSources e =
-  InputSources {
-    ioHasOpened :: e ()
-  , ioRead      :: e T.Text
-  , ioHasClosed :: e ()
-  , ioClosed    :: IORef Bool
+data LineInputSources e =
+  LineInputSources {
+    liesHasOpened :: e ()
+  , liesRead      :: e T.Text
+  , liesHasClosed :: e ()
+  , liesClosed    :: IORef Bool
   }
 
 -- TODO generalize the creation of iorefs, so that
 -- we don't need IO in the signature here
-mkInputSources :: EventSource e IO => IO (InputSources e)
-mkInputSources =
-  InputSources <$>
+mkLineInputSources :: EventSource e IO => IO (LineInputSources e)
+mkLineInputSources =
+  LineInputSources <$>
     mkEventSource <*>
     mkEventSource <*>
     mkEventSource <*>

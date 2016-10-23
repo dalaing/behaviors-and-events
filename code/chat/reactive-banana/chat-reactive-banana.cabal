@@ -37,6 +37,8 @@ library
                      , Chat.Network.Client
                      , Chat.Network.Server
                      , Chat.Network.Types
+                     , Chat.Network.Types.Domain
+                     , Chat.Network.Types.Line
                      , Local
                      , Local.InputSources
                      , Local.Network

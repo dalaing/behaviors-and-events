@@ -36,7 +36,7 @@ import           Chat.Network.Client          (ClientInput (..),
                                                ClientOutput (..), clientNetwork)
 import           Chat.Network.Server          (ServerOutput (..),
                                                serverNetworkFromAddEvent)
-import           Chat.Network.Types           (InputIO (..), OutputIO (..))
+import           Chat.Network.Types           (LineInput (..), LineOutput (..))
 import           Chat.Types.Config            (Config (..))
 import           Chat.Types.Name              (NameType (..))
 import           Chat.Types.Notification      (NotificationType (..))
@@ -48,15 +48,15 @@ import           Util                         (bulkRemove)
 import           Util.IO                      (EventSource (..))
 import           Util.Switch                  (Switch (..))
 
-handleInput :: ClientInputSources -> MomentIO InputIO
+handleInput :: ClientInputSources -> MomentIO LineInput
 handleInput (ClientInputSources esOpen esRead esClose _) = do
   eOpen  <- registerEvent esOpen
   eRead  <- registerEvent esRead
   eClose <- registerEvent esClose
-  return $ InputIO eOpen eRead eClose
+  return $ LineInput eOpen eRead eClose
 
-handleOutput :: Handle -> ClientInputSources -> OutputIO -> MomentIO ()
-handleOutput h (ClientInputSources _ _ _ refClose) (OutputIO eWrite eClose) = do
+handleOutput :: Handle -> ClientInputSources -> LineOutput -> MomentIO ()
+handleOutput h (ClientInputSources _ _ _ refClose) (LineOutput eWrite eClose) = do
     reactimate $ hPutStrLn h . T.unpack <$> eWrite
     reactimate $ closeOnce <$ eClose
   where
@@ -92,13 +92,13 @@ network (ServerInputSources esHandle) = mdo
   let
     config = Config Interactive Stream
     bLimit = pure 100
-    emptyInputIO = InputIO never never never
+    emptyInput = LineInput never never never
 
   eHandle <- registerEvent esHandle
 
   bId <- accumB 0 ((+ 1) <$ eHandle)
 
-  eOut <- execute $ (\i h -> mkClient config (ClientInput i bLimit bNameIdMap eNotifyIn eKickIn emptyInputIO) h) <$> bId <@> eHandle
+  eOut <- execute $ (\i h -> mkClient config (ClientInput i bLimit bNameIdMap eNotifyIn eKickIn emptyInput) h) <$> bId <@> eHandle
 
   eClientMap <- accumE M.empty . unions $ [
       M.insert <$> bId <@> eOut
@@ -125,18 +125,18 @@ network (ServerInputSources esHandle) = mdo
   eKickIn <- switchE eeKicks
 
   let
-    eeCloses = (foldr (unionWith S.union) never . M.mapWithKey (\i v -> S.singleton i <$ (oeClose . coIO $ v))) <$> eClientMap
+    eeCloses = (foldr (unionWith S.union) never . M.mapWithKey (\i v -> S.singleton i <$ (loeClose . coIO $ v))) <$> eClientMap
   eClose <- switchE eeCloses
 
   return ()
 
-mkClient2 :: Event (M.Map Int OutputIO) -> Int -> Handle -> MomentIO (Int, InputIO)
+mkClient2 :: Event (M.Map Int LineOutput) -> Int -> Handle -> MomentIO (Int, LineInput)
 mkClient2 mOut i handle = do
   cis <- mkClientInputSources
   input <- handleInput cis
 
   let
-    emptyOutput = OutputIO never never
+    emptyOutput = LineOutput never never
   -- There is a delay in the switch, such that the last client to join
   -- doesn't see any output events happening
   --
@@ -159,11 +159,14 @@ network2 :: ServerInputSources -> MomentIO ()
 network2 (ServerInputSources esHandle) = mdo
   eHandle <- registerEvent esHandle
   bId <- accumB 0 ((+ 1) <$ eHandle)
+
   eI <- execute $ mkClient2 eOMap <$> bId <@> eHandle
+
   ServerOutput eOMap _ <- liftMoment . serverNetworkFromAddEvent $ eI
+
   return ()
 
-mkClient3 :: Handle -> OutputIO -> MomentIO InputIO
+mkClient3 :: Handle -> LineOutput -> MomentIO LineInput
 mkClient3 handle o = do
   cis <- mkClientInputSources
   input <- handleInput cis

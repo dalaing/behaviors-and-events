@@ -33,8 +33,8 @@ import           Chat.Components.Notification        (NotifyInput (..),
                                                       NotifyOutput (..))
 import qualified Chat.Components.Notification.Batch  as NoB (handleNotify)
 import qualified Chat.Components.Notification.Stream as NoS (handleNotify)
-import           Chat.Network.Types                  (InputIO (..),
-                                                      OutputIO (..))
+import           Chat.Network.Types                  (LineInput (..),
+                                                      LineOutput (..))
 import           Chat.Types.Config                   (Config (..))
 import           Chat.Types.Name                     (Name, NameType (..))
 import           Chat.Types.Notification             (Notification (..),
@@ -77,7 +77,7 @@ data ClientInput =
   , cibNameIdMap :: Behavior (M.Map Name Int)
   , cieNotifyIn  :: Event [Notification]
   , cieKickIn    :: Event (S.Set Int)
-  , ciIO         :: InputIO
+  , ciIO         :: LineInput
   }
 
 data ClientOutput =
@@ -87,7 +87,7 @@ data ClientOutput =
   , coeName      :: Event (Maybe Name)
   , coeNotifyOut :: Event Notification
   , coeKick      :: Event Int
-  , coIO         :: OutputIO
+  , coIO         :: LineOutput
   }
 
 handleName :: Config -> NameInput -> Moment NameOutput
@@ -102,8 +102,21 @@ handleNotify config =
     Stream -> NoS.handleNotify
     Batch  -> NoB.handleNotify
 
+-- Need to break this down so that we can use it for the HTTP backend
+-- - eOpened and eClosed go through as before
+
+-- - probably want an eRead -> Event ParsedCommands kind of thing
+--   - one function for each phase, each passed into the read form of clientNetwork
+-- - maybe just have two version of client network? parametise ClientInput on the per-client events it takes in?
+
+-- ParsedCommands eName ..list of commands from command phase... eUnknown
+-- - possibly fold opened and closed into this as well and have DomainInput or something like that
+-- - should probably rename InputIO to IOInput or LineInput while we're at it
+--
+-- Eventually would be nice to use classy prisms to replace the text output with a data structure output,
+-- that then gets converted to text
 clientNetwork :: Config -> ClientInput -> Moment ClientOutput
-clientNetwork config (ClientInput cId bLimit bNameIdMap eNotifyIn eKickIn (InputIO eOpened eRead eClosed)) = mdo
+clientNetwork config (ClientInput cId bLimit bNameIdMap eNotifyIn eKickIn (LineInput eOpened eRead eClosed)) = mdo
   let
     bNames = M.keysSet <$> bNameIdMap
     nameOut = fmap wrapName . handleName config $ NameInput bNames eOpened eRead
@@ -134,4 +147,4 @@ clientNetwork config (ClientInput cId bLimit bNameIdMap eNotifyIn eKickIn (Input
     eWrite = leftmost [woeWrite wo, enWrite]
     eClose = leftmost [woeClose wo, () <$ filterE (S.member cId) eKickIn]
 
-  return $ ClientOutput bName eName eNotifyOut eKickOut (OutputIO eWrite eClose)
+  return $ ClientOutput bName eName eNotifyOut eKickOut (LineOutput eWrite eClose)

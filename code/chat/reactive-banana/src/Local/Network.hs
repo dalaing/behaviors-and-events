@@ -22,33 +22,33 @@ import           Reactive.Banana.Frameworks          (MomentIO, reactimate)
 import           Chat.Network.Client                 (ClientInput (..),
                                                       ClientOutput (..),
                                                       clientNetwork)
-import           Chat.Network.Types                  (InputIO (..),
-                                                      OutputIO (..),
-                                                      InputSources(..))
+import           Chat.Network.Types                  (LineInput (..),
+                                                      LineOutput (..),
+                                                      LineInputSources(..))
 import           Chat.Types.Config                   (Config (..))
 import           Chat.Types.Name                     (NameType (..))
 import           Chat.Types.Notification             (NotificationType (..))
 import           Util.IO                             (EventSource (..))
 
-handleInput :: EventSource e m => InputSources e -> MomentIO InputIO
-handleInput (InputSources esOpen esRead esClose _) = do
+handleInput :: EventSource e m => LineInputSources e -> MomentIO LineInput
+handleInput (LineInputSources esOpen esRead esClose _) = do
   eOpen  <- registerEvent esOpen
   eRead  <- registerEvent esRead
   eClose <- registerEvent esClose
-  return $ InputIO eOpen eRead eClose
+  return $ LineInput eOpen eRead eClose
 
-handleOutput :: InputSources e -> OutputIO -> MomentIO ()
-handleOutput (InputSources _ _ _ refClose) (OutputIO eWrite eClose) = do
+handleOutput :: LineInputSources e -> LineOutput -> MomentIO ()
+handleOutput (LineInputSources _ _ _ refClose) (LineOutput eWrite eClose) = do
   reactimate $ putStrLn . T.unpack <$> eWrite
   reactimate $ writeIORef refClose True <$ eClose
 
-network :: EventSource e m => InputSources e -> MomentIO ()
+network :: EventSource e m => LineInputSources e -> MomentIO ()
 network is = do
   i <- handleInput is
   o <- liftMoment $ network' i
   handleOutput is o
 
-network' :: InputIO -> Moment OutputIO
+network' :: LineInput -> Moment LineOutput
 network' i = mdo
   let
     config = Config Interactive Stream

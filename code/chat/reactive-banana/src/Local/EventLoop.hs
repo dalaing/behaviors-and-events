@@ -18,11 +18,11 @@ import qualified Data.Text                 as T
 
 import           System.Console.Haskeline
 
-import           Chat.Network.Types        (InputSources(..))
+import           Chat.Network.Types        (LineInputSources(..))
 import           Util.IO                   (EventSource (..))
 
-eventLoop :: EventSource e m => InputSources e -> IO ()
-eventLoop (InputSources esOpen esRead esClosed refClose) = do
+eventLoop :: EventSource e m => LineInputSources e -> IO ()
+eventLoop (LineInputSources esOpen esRead esClosed refClose) = do
     fireEvent esOpen ()
     runInputT defaultSettings loop
   where

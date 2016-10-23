@@ -26,7 +26,7 @@ import           Reactive.Banana         (Event, Moment, accumE, never,
 
 import           Chat.Network.Client     (ClientInput (..), ClientOutput (..),
                                           clientNetwork)
-import           Chat.Network.Types      (InputIO (..), OutputIO (..))
+import           Chat.Network.Types      (LineInput (..), LineOutput (..))
 import           Chat.Types.Config       (Config (..))
 import           Chat.Types.Name         (NameType (..))
 import           Chat.Types.Notification (NotificationType (..))
@@ -34,16 +34,16 @@ import           Util                    (bulkRemove)
 
 data ServerInput =
   ServerInput {
-    sieClients :: Event (M.Map Int InputIO)
+    sieClients :: Event (M.Map Int LineInput)
   }
 
 data ServerOutput =
   ServerOutput {
-    soeClients :: Event (M.Map Int OutputIO)
+    soeClients :: Event (M.Map Int LineOutput)
   , soeClose :: Event (S.Set Int)
   }
 
-serverNetworkFromAddEvent :: Event (Int, InputIO) -> Moment ServerOutput
+serverNetworkFromAddEvent :: Event (Int, LineInput) -> Moment ServerOutput
 serverNetworkFromAddEvent eAdd = mdo
   eInMap <- accumE M.empty . unions $ [
       uncurry M.insert <$> eAdd
@@ -76,7 +76,7 @@ serverNetwork (ServerInput eInMap) = mdo
   eKickIn <- switchE eeKicks
 
   let
-    eeCloses = (foldr (unionWith S.union) never . M.mapWithKey (\i v -> S.singleton i <$ (oeClose . coIO $ v))) <$> eClientMap
+    eeCloses = (foldr (unionWith S.union) never . M.mapWithKey (\i v -> S.singleton i <$ (loeClose . coIO $ v))) <$> eClientMap
   eClose <- switchE eeCloses
 
   let
