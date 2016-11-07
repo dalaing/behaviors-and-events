@@ -95,7 +95,7 @@ flipper eInput =
 ```
 \column{.5\textwidth}
 
-![](../images/fmap-flip.png)\
+![](images/fmap-flip.png)\
 
 \colsend
 
@@ -117,7 +117,7 @@ blue eInput =
 ```
 \column{.5\textwidth}
 
-![](../images/fmap-const.png)\
+![](images/fmap-const.png)\
 
 \colsend
 
@@ -151,7 +151,7 @@ red eInput =
 ```
 \column{.5\textwidth}
 
-![](../images/filterE.png)\
+![](images/filterE.png)\
 
 \colsend
 
@@ -178,7 +178,7 @@ splitter eInput =
 ```
 \column{.5\textwidth}
 
-![](../images/split.png)\
+![](images/split.png)\
 
 \colsend
 
@@ -213,7 +213,7 @@ mixer eInput1 eInput2 =
 ```
 \column{.5\textwidth}
 
-![](../images/unionWith.png)\
+![](images/unionWith.png)\
 
 \colsend
 
@@ -245,7 +245,7 @@ lister eInput =
 ```
 \column{.5\textwidth}
 
-![](../images/leftmost.png)\
+![](images/leftmost.png)\
 
 \colsend
 
@@ -571,7 +571,7 @@ toggler eInput = do
 ```
 \column{.5\textwidth}
 
-![](../images/accumE-flip.png)\
+![](images/accumE-flip.png)\
 
 \colsend
 
@@ -593,7 +593,7 @@ counter eInc = do
 
 \column{.5\textwidth}
 
-![](../images/accumE-count.png)\
+![](images/accumE-count.png)\
 
 \colsend
 
@@ -623,7 +623,7 @@ counter2 eInc eDouble = do
 
 \column{.5\textwidth}
 
-![](../images/accumE-count-leftmost.png)\
+![](images/accumE-count-leftmost.png)\
 
 \colsend
 
@@ -649,7 +649,7 @@ counter3 eInc eDouble = do
 
 \column{.5\textwidth}
 
-![](../images/accumE-count-unions.png)\
+![](images/accumE-count-unions.png)\
 
 \colsend
 
@@ -1491,13 +1491,13 @@ networkDescription' = ...
 ##
 
 We have gone from:
-![](../images/photos/stuff.jpg)\
+![](images/photos/stuff.jpg)\
 
 
 ##
 
 To:
-![](../images/photos/io.jpg)\
+![](images/photos/io.jpg)\
 
 
 ##
@@ -1611,7 +1611,7 @@ networkDescription` i = do
 ##
 
 Now we have something like:
-![](../images/photos/fan.jpg)\
+![](images/photos/fan.jpg)\
 
 
 ## 
@@ -1784,7 +1784,7 @@ networkDescription'' (Inputs eO eM eH eU eQ) = do
 ##
 
 Which stands out in the block diagram:
-![](../images/photos/components.jpg)\
+![](images/photos/components.jpg)\
 
 
 # Behaviors
@@ -1854,7 +1854,7 @@ holder eInput = do
 ```
 \column{.5\textwidth}
 
-![](../images/stepper.png)\
+![](images/stepper.png)\
 
 \colsend
 
@@ -1896,7 +1896,7 @@ mixer bInput eInput =
 ```
 \column{.5\textwidth}
 
-![](../images/sample-mix.png)\
+![](images/sample-mix.png)\
 
 \colsend
 
@@ -1919,7 +1919,7 @@ tagger bInput eInput =
 ```
 \column{.5\textwidth}
 
-![](../images/sample-const.png)\
+![](images/sample-const.png)\
 
 \colsend
 
@@ -1951,7 +1951,7 @@ sifter bInput eInput =
 ```
 \column{.5\textwidth}
 
-![](../images/whenE.png)\
+![](images/whenE.png)\
 
 \colsend
 
@@ -2009,7 +2009,8 @@ logInHandler eLogIn eLogOut = mdo
 
   
   
-  
+
+
   
   return (???        , ???        )
 ```
@@ -2029,7 +2030,8 @@ logInHandler eLogIn eLogOut = mdo
   
   
   
-  
+
+
   return (???        , ???        )
 ```
 
@@ -2046,7 +2048,8 @@ logInHandler :: Event ()
                        )
 logInHandler eLogIn eLogOut = mdo
   bLogInState <- stepper LoggedOut ???
-  
+ 
+ 
   
   
   
@@ -2066,10 +2069,11 @@ logInHandler :: Event ()
                        )
 logInHandler eLogIn eLogOut = mdo
   bLogInState <- stepper LoggedOut ???
-  (eLogInError, eLogInState) = split . leftmost $ [
-      logIn  <$> bLogInState <@ eLogIn
-      logOut <$> bLogInState <@ eLogOut
-    ]
+  let 
+    (eLogInError, eLogInState) = split . leftmost $ [
+        logIn  <$> bLogInState <@ eLogIn
+        logOut <$> bLogInState <@ eLogOut
+      ]
   return (bLogInState, ???        )
 ```
 
@@ -2086,10 +2090,11 @@ logInHandler :: Event ()
                        )
 logInHandler eLogIn eLogOut = mdo
   bLogInState <- stepper LoggedOut ???
-  (eLogInError, eLogInState) = split . leftmost $ [
-      logIn  <$> bLogInState <@ eLogIn
-      logOut <$> bLogInState <@ eLogOut
-    ]
+  let 
+    (eLogInError, eLogInState) = split . leftmost $ [
+        logIn  <$> bLogInState <@ eLogIn
+        logOut <$> bLogInState <@ eLogOut
+      ]
   return (bLogInState, eLogInError)
 ```
 
@@ -2106,10 +2111,11 @@ logInHandler :: Event ()
                        )
 logInHandler eLogIn eLogOut = mdo
   bLogInState <- stepper LoggedOut eLogInState
-  (eLogInError, eLogInState) = split . leftmost $ [
-      logIn  <$> bLogInState <@ eLogIn
-      logOut <$> bLogInState <@ eLogOut
-    ]
+  let 
+    (eLogInError, eLogInState) = split . leftmost $ [
+        logIn  <$> bLogInState <@ eLogIn
+        logOut <$> bLogInState <@ eLogOut
+      ]
   return (bLogInState, eLogInError)
 ```
 
@@ -2159,7 +2165,7 @@ toggler eInput = do
 ```
 \column{.5\textwidth}
 
-![](../images/accumB-flip.png)\
+![](images/accumB-flip.png)\
 
 \colsend
 
@@ -2169,11 +2175,11 @@ toggler eInput = do
 
 \column{.5\textwidth}
 
-![](../images/accumE-flip.png)\
+![](images/accumE-flip.png)\
 
 \column{.5\textwidth}
 
-![](../images/accumB-flip.png)\
+![](images/accumB-flip.png)\
 
 \colsend
 
@@ -2420,7 +2426,7 @@ data LimitOutput = LimitOutput {
 ##
 
 We're aiming for something like this:
-![](../images/photos/limit.jpg)\
+![](images/photos/limit.jpg)\
 
 
 ##
@@ -2785,7 +2791,7 @@ data NameOutput = NameOutput {
 
 ##
 
-![](../images/photos/name.jpg)\
+![](images/photos/name.jpg)\
 
 
 ##
@@ -2808,7 +2814,7 @@ data CommandOutput = CommandOutput {
 
 ##
 
-![](../images/photos/command.jpg)\
+![](images/photos/command.jpg)\
 
 
 ##
@@ -2876,7 +2882,7 @@ handleNotifyBatch bLimit (NotifyInput eFetch eNotify) = do
 
 ##
 
-![](../images/photos/notify.jpg)\
+![](images/photos/notify.jpg)\
 
 
 ##
@@ -3025,7 +3031,7 @@ handleBlock (Inputs eOpen eRead bGreet bNames eNotify) = do
 
 ##
 
-![](../images/photos/all.jpg)\
+![](images/photos/all.jpg)\
 
 
 # Filtering and switching
@@ -3221,7 +3227,7 @@ switcher b1 e1 b2 e2 = do
 ```
 \column{.5\textwidth}
 
-![](../images/switchB-slides.png)\
+![](images/switchB-slides.png)\
 
 \colsend
 
@@ -3255,7 +3261,7 @@ switcher i1 s1 i2 s2 = do
 ```
 \column{.5\textwidth}
 
-![](../images/switchE-slides.png)\
+![](images/switchE-slides.png)\
 
 \colsend
 
